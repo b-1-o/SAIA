@@ -1,9 +1,9 @@
 {
   "name": "saia",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "Local-first browser study assistant with OCR and automatic local model routing",
+  "description": "Local-first study assistant with course discovery, OCR, model routing, and document drafts",
   "scripts": {
     "dev": "concurrently -k -n API,POPUP -c magenta,cyan npm:dev:api npm:dev:popup",
     "dev:api": "tsx watch server/src/index.ts",
@@ -16,10 +16,14 @@
   "dependencies": {
     "cors": "^2.8.5",
     "dotenv": "^16.6.1",
+    "docx": "^9.5.1",
     "express": "^5.1.0",
+    "mammoth": "^1.10.0",
+    "pdfjs-dist": "^5.4.149",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "tesseract.js": "^6.0.1",
+    "xlsx": "^0.18.5",
     "zod": "^4.1.11"
   },
   "devDependencies": {
