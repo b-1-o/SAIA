@@ -128,6 +128,50 @@ async function scanCourses(startTab) {
   };
 }
 
+async function captureVisibleScreenshot(tab) {
+  try { return await chrome.tabs.captureVisibleTab(tab.windowId, { format: "jpeg", quality: 72 }); }
+  catch (_) { return null; }
+}
+
+async function captureQuizScreenshots(tab, maxScreenshots = 6) {
+  const metricsResult = await chrome.scripting.executeScript({
+    target: { tabId: tab.id },
+    func: () => ({
+      scrollY: window.scrollY,
+      scrollHeight: Math.max(document.documentElement.scrollHeight, document.body?.scrollHeight || 0),
+      innerHeight: window.innerHeight
+    })
+  });
+  const metrics = metricsResult?.[0]?.result || { scrollY: 0, scrollHeight: 0, innerHeight: 800 };
+  const originalY = Number(metrics.scrollY || 0);
+  const viewportHeight = Math.max(1, Number(metrics.innerHeight || 800));
+  const maxY = Math.max(0, Number(metrics.scrollHeight || viewportHeight) - viewportHeight);
+  const step = Math.max(300, Math.floor(viewportHeight * 0.78));
+  const positions = [0];
+  for (let y = step; y < maxY && positions.length < maxScreenshots; y += step) positions.push(y);
+  if (maxY > 0 && positions.length < maxScreenshots && positions[positions.length - 1] !== maxY) positions.push(maxY);
+
+  const screenshots = [];
+  try {
+    for (const y of positions.slice(0, maxScreenshots)) {
+      await chrome.scripting.executeScript({
+        target: { tabId: tab.id }, args: [y], func: (top) => window.scrollTo(0, top)
+      });
+      await sleep(260);
+      const image = await captureVisibleScreenshot(tab);
+      if (image) screenshots.push(image);
+    }
+  } finally {
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId: tab.id }, args: [originalY], func: (top) => window.scrollTo(0, top)
+      });
+    } catch (_) {}
+  }
+  const totalViewports = Math.max(1, Math.ceil((maxY + viewportHeight) / step));
+  return { images: screenshots, capturedViewports: screenshots.length, totalViewports, partial: totalViewports > screenshots.length };
+}
+
 async function attachDraftToCurrentSubmission(tab, draft) {
   if (!isSupportedPage(tab.url)) throw new Error("Open the relevant Schoology assignment page first.");
   if (!draft || typeof draft.filename !== "string" || typeof draft.base64 !== "string") {
@@ -195,25 +239,26 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
     const settings = await chrome.storage.local.get({ apiBaseUrl: DEFAULT_API, useSearch: true });
     const page = await getPageSnapshot(tab);
-    const screenshot = await (async () => {
-      try { return await chrome.tabs.captureVisibleTab(tab.windowId, { format: "jpeg", quality: 72 }); }
-      catch (_) { return null; }
-    })();
     let body;
     let endpoint = "/api/analyze";
 
     if (message.type === "SAIA_ANALYZE_QUIZ") {
       const questionData = await askContentScript(tab.id, "SAIA_COLLECT_QUESTIONS");
+      const capture = await captureQuizScreenshots(tab, 6);
+      const coverageNote = capture.partial
+        ? "Visual coverage warning: SAIA captured " + capture.capturedViewports + " viewport images out of an estimated " + capture.totalViewports + ". Some later diagrams or images may be missing from visual analysis."
+        : "Visual coverage: " + capture.capturedViewports + " viewport image(s) captured across the page.";
       body = {
         title: page.title,
         pageUrl: page.url,
-        text: page.text,
+        text: page.text + "\n\n" + coverageNote,
         questions: questionData.questions || [],
-        images: screenshot ? [screenshot] : [],
+        images: capture.images,
         useSearch: Boolean(settings.useSearch)
       };
       endpoint = "/api/analyze-quiz";
     } else {
+      const screenshot = await captureVisibleScreenshot(tab);
       body = {
         title: page.title, pageUrl: page.url, text: page.text,
         images: screenshot ? [screenshot] : [],
