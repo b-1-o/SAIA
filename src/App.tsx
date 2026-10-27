@@ -279,7 +279,7 @@ export default function App() {
           <span className="custom-toggle" />
           <span className="toggle-text"><strong>Use web search when useful</strong><small>{health?.tavilyConfigured ? "Tavily configured." : "Optional — add a Tavily key to .env."}</small></span>
         </label>
-        <button className="primary-button" onClick={() => void scanCourses()} disabled={busy || !health?.ollamaAvailable}>
+        <button className="primary-button" onClick={() => void scanCourses()} disabled={busy}>
           {busy && busyLabel.startsWith("Scanning") ? <><span className="spinner" /> {busyLabel}</> : <><span>◎</span> Scan courses and assignments</>}
         </button>
         <button className="secondary-button" onClick={() => void analyzeWholeQuiz()} disabled={busy || !health?.ollamaAvailable}>
