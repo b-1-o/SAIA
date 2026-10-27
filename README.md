@@ -56,7 +56,7 @@ Add `TAVILY_API_KEY=...` to `.env` to enable optional search. Without a key, SAI
 ## Limitations
 
 - Discovery depends on links and status labels rendered by the current LMS pages; dynamic layouts, closed courses, paginated content and external tools may be missed.
-- Quiz collection is best-effort, especially for iframe-based content or custom controls. A quiz batch analyzes at most 6 detected questions per request; use the visible-page action for focused review of another section. A single screenshot is used only when visual content is detected.
+- Quiz collection is best-effort, especially for iframe-based content or custom controls. A quiz batch analyzes at most 6 detected questions per request; use the Previous 6 / Analyze next 6 controls to move through the quiz in smaller batches. A single screenshot is used only when visual content is detected.
 - OCR and local models can misread text or diagrams. The local model request times out after 120 seconds, and the terminal logs the stages/timing; confidence is a model estimate, not a calibrated probability.
 - PDF image-only pages do not yet get rendered to images for OCR.
 - File attachments can be opened or downloaded through the browser Save dialog, then prepared as new review copies; complex original formatting may not be preserved.
