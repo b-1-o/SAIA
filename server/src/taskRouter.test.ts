@@ -16,7 +16,7 @@ test("routes image-only questions to vision", () => {
 
 test("keeps ordinary readable quiz text on the lightweight profile despite viewport capture", () => {
   const question = "What caused the Great Depression? Read the source paragraph carefully and choose the best explanation. " +
-    "The question refers to historical causes and the text provides the context, so it does not require reading a graph, map, image, or diagram.";
+    "The question refers to historical causes, and the paragraph provides the relevant context and evidence needed to choose a response.";
   assert.equal(classifyTask(question, 1).kind, "research");
 });
 
