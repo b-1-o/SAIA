@@ -51,7 +51,15 @@ The local API runs at `http://127.0.0.1:41732`; the popup development server run
 
 ## Optional search
 
-Add `TAVILY_API_KEY=...` to `.env` to enable optional search. Without a key, SAIA still works locally. Quiz batches search at most a small number of factual questions to conserve quota. Search queries are cleaned of common email/name/phone/student-ID patterns, but always inspect queries before using a third-party API; no cleaning heuristic can guarantee removal of all personal data.
+1. Create or sign in to a Tavily account at https://app.tavily.com/home and copy the API key from the dashboard. The key is a secret credential; see Tavily's [API key safety guidance](https://help.tavily.com/articles/6594896502-best-practices-for-tavily-api-key-safety).
+2. Open the `.env` file in the **SAIA project root** and set `TAVILY_API_KEY=tvly-your-real-key` (replace the example value with your key).
+3. Restart `npm run dev`. SAIA reads the key when the local API starts; the UI should then show **Tavily configured**.
+
+Keep the key in the local `.env` only. Never paste it into browser code or commit it to GitHub. Without a key, SAIA still works locally. Quiz batches search at most a small number of factual questions to conserve quota; math-only tasks may not trigger web search. Search queries are cleaned of common email/name/phone/student-ID patterns, but always inspect queries before using a third-party API; no cleaning heuristic can guarantee removal of all personal data.
+
+## Saved result history
+
+The extension's **Saved results** view keeps the latest 40 quiz batches, page analyses, course scans, and attachment searches in `chrome.storage.local`. The history stays on this browser when the popup closes or the browser restarts. Use **Export JSON** to save a backup or **Clear history** to delete the saved records. Existing results from before history was added cannot be reconstructed unless they are run again.
 
 ## Limitations
 
