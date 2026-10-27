@@ -1,6 +1,6 @@
 import { config } from "./config.js";
 import { classifyTask, shouldSearch, buildSearchQuery } from "./taskRouter.js";
-import { recognizeImage } from "./ocr.js";
+import { recognizeImages } from "./ocr.js";
 import { searchWeb } from "./search.js";
 import { chatWithOllama, resolveModel } from "./ollama.js";
 import type { AnalysisResponse, AnalyzeInput, SearchSource } from "./types.js";
@@ -53,7 +53,7 @@ function systemPrompt(kind: string): string {
 export async function analyze(input: AnalyzeInput): Promise<AnalysisResponse> {
   const primaryImage = input.images[0] || null;
   const warnings: string[] = [];
-  const ocrResults = await Promise.all(input.images.slice(0, 2).map((image) => recognizeImage(image)));
+  const ocrResults = await recognizeImages(input.images.slice(0, 2));
   const ocrText = ocrResults.map((result) => result.text).filter(Boolean).join("\n\n");
   const ocrLines = ocrResults.flatMap((result) => result.lines);
   const ocrSize = ocrResults.find((result) => result.width > 0 && result.height > 0);
@@ -80,7 +80,9 @@ export async function analyze(input: AnalyzeInput): Promise<AnalysisResponse> {
 
   const resolved = await resolveModel(route.preferredModel);
   if (resolved.fallbackUsed) {
-    warnings.push("Preferred model " + route.preferredModel + " is not installed; using " + resolved.model + ".");
+    warnings.push(resolved.fallbackReason === "low-memory"
+      ? "Low-memory mode: using " + resolved.model + " instead of " + route.preferredModel + " to avoid exhausting RAM. Results may be less accurate; verify carefully."
+      : "Preferred model " + route.preferredModel + " is not installed; using " + resolved.model + ".");
   }
 
   const sourceContext = sources.length
