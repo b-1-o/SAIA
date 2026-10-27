@@ -49,50 +49,74 @@ function getImageDimensions(bytes: Buffer): { width: number; height: number } {
   return { width: 0, height: 0 };
 }
 
-export async function recognizeImage(dataUrl: string): Promise<OCRResult> {
-  let worker: Awaited<ReturnType<typeof createWorker>> | undefined;
-  try {
-    const bytes = getImageBytes(dataUrl);
-    worker = await createWorker("eng");
-    // Tesseract.js v6 requires the blocks output flag for structured text geometry.
-    const result = await worker.recognize(bytes, {}, { blocks: true });
-    const data = result.data as unknown as OCRData;
-    const lines: OCRLine[] = (data.blocks || [])
-      .flatMap((block) => (block.paragraphs || []).flatMap((paragraph) => paragraph.lines || []))
-      .map((line) => {
-        const bbox = line.bbox || { x0: 0, y0: 0, x1: 0, y1: 0 };
-        return {
-          text: String(line.text || (line.words || []).map((word) => word.text || "").join(" ")).trim(),
-          bbox: {
-            x0: Number(bbox.x0),
-            y0: Number(bbox.y0),
-            x1: Number(bbox.x1),
-            y1: Number(bbox.y1)
-          }
-        };
-      })
-      .filter((line) => line.text.length > 0 && line.bbox.x1 > line.bbox.x0 && line.bbox.y1 > line.bbox.y0);
+function warningResult(error: unknown): OCRResult {
+  return {
+    text: "",
+    lines: [],
+    width: 0,
+    height: 0,
+    warning: "OCR could not process this image. The vision model will still try to inspect it. " +
+      (error instanceof Error ? error.message : "Unknown OCR error.")
+  };
+}
 
-    const dimensions = getImageDimensions(bytes);
-    const reportedSize = data.imageSize;
-    return {
-      text: String(data.text || "").trim(),
-      lines,
-      width: Number(dimensions.width || reportedSize?.width || 0),
-      height: Number(dimensions.height || reportedSize?.height || 0)
-    };
+function toOCRResult(bytes: Buffer, result: Awaited<ReturnType<NonNullable<Awaited<ReturnType<typeof createWorker>>["recognize"]>>>): OCRResult {
+  const data = result.data as unknown as OCRData;
+  const lines: OCRLine[] = (data.blocks || [])
+    .flatMap((block) => (block.paragraphs || []).flatMap((paragraph) => paragraph.lines || []))
+    .map((line) => {
+      const bbox = line.bbox || { x0: 0, y0: 0, x1: 0, y1: 0 };
+      return {
+        text: String(line.text || (line.words || []).map((word) => word.text || "").join(" ")).trim(),
+        bbox: {
+          x0: Number(bbox.x0),
+          y0: Number(bbox.y0),
+          x1: Number(bbox.x1),
+          y1: Number(bbox.y1)
+        }
+      };
+    })
+    .filter((line) => line.text.length > 0 && line.bbox.x1 > line.bbox.x0 && line.bbox.y1 > line.bbox.y0);
+
+  const dimensions = getImageDimensions(bytes);
+  const reportedSize = data.imageSize;
+  return {
+    text: String(data.text || "").trim(),
+    lines,
+    width: Number(dimensions.width || reportedSize?.width || 0),
+    height: Number(dimensions.height || reportedSize?.height || 0)
+  };
+}
+
+export async function recognizeImages(dataUrls: string[]): Promise<OCRResult[]> {
+  if (dataUrls.length === 0) return [];
+  const results: OCRResult[] = [];
+  let worker: Awaited<ReturnType<typeof createWorker>> | undefined;
+
+  try {
+    // Reuse one WASM worker for the batch instead of reloading its runtime for every screenshot.
+    worker = await createWorker("eng");
+    for (const dataUrl of dataUrls) {
+      try {
+        const bytes = getImageBytes(dataUrl);
+        // Tesseract.js v6 requires the blocks output flag for structured text geometry.
+        const result = await worker.recognize(bytes, {}, { blocks: true });
+        results.push(toOCRResult(bytes, result));
+      } catch (error) {
+        results.push(warningResult(error));
+      }
+    }
   } catch (error) {
-    return {
-      text: "",
-      lines: [],
-      width: 0,
-      height: 0,
-      warning: "OCR could not process this image. The vision model will still try to inspect it. " +
-        (error instanceof Error ? error.message : "Unknown OCR error.")
-    };
+    while (results.length < dataUrls.length) results.push(warningResult(error));
   } finally {
     if (worker) {
       try { await worker.terminate(); } catch { /* worker may already be stopped */ }
     }
   }
+
+  return results;
+}
+
+export async function recognizeImage(dataUrl: string): Promise<OCRResult> {
+  return (await recognizeImages([dataUrl]))[0] || warningResult(new Error("No image was provided."));
 }
