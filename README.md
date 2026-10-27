@@ -59,7 +59,7 @@ Add `TAVILY_API_KEY=...` to `.env` to enable optional search. Without a key, SAI
 - Quiz collection is best-effort, especially for iframe-based content or custom controls. A quiz mode scrolls and captures up to 6 viewport images, then restores the original scroll position; very long quizzes can exceed that coverage.
 - OCR and local models can misread text or diagrams. Confidence is a model estimate, not a calibrated probability.
 - PDF image-only pages do not yet get rendered to images for OCR.
-- File attachments are prepared as new review copies; complex original formatting may not be preserved.
+- File attachments can be opened or downloaded through the browser Save dialog, then prepared as new review copies; complex original formatting may not be preserved.
 - The attach action fills a file picker when the active page exposes one supported control. It does not submit work.
 - No school password is requested or stored. The API binds to loopback only; optional search sends cleaned query text to Tavily.
 
