@@ -71,6 +71,7 @@ export default function App() {
   const [healthError, setHealthError] = useState("");
   const [busy, setBusy] = useState(false);
   const [busyLabel, setBusyLabel] = useState("");
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
@@ -80,6 +81,16 @@ export default function App() {
   const [useSearch, setUseSearch] = useState(true);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [fileDraft, setFileDraft] = useState<FileDraft | null>(null);
+
+  useEffect(() => {
+    if (!busy) {
+      setElapsedSeconds(0);
+      return;
+    }
+    const startedAt = Date.now();
+    const interval = window.setInterval(() => setElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000)), 1000);
+    return () => window.clearInterval(interval);
+  }, [busy]);
 
   async function refreshHealth() {
     try {
@@ -138,14 +149,14 @@ export default function App() {
   async function analyzePage() {
     setAnalysis(null);
     setQuiz(null);
-    const result = await runExtensionAction<Analysis>("SAIA_ANALYZE_CURRENT", "Analyzing page and image…");
+    const result = await runExtensionAction<Analysis>("SAIA_ANALYZE_CURRENT", "Analyzing page…");
     if (result) setAnalysis(result);
   }
 
   async function analyzeWholeQuiz() {
     setAnalysis(null);
     setQuiz(null);
-    const result = await runExtensionAction<QuizResult>("SAIA_ANALYZE_QUIZ", "Collecting and analyzing questions…");
+    const result = await runExtensionAction<QuizResult>("SAIA_ANALYZE_QUIZ", "Analyzing quiz batch…");
     if (result) setQuiz(result);
   }
 
@@ -303,10 +314,10 @@ export default function App() {
           {busy && busyLabel.startsWith("Scanning") ? <><span className="spinner" /> {busyLabel}</> : <><span>◎</span> Scan courses and assignments</>}
         </button>
         <button className="secondary-button" onClick={() => void analyzeWholeQuiz()} disabled={busy || !health?.ollamaAvailable}>
-          {busy && busyLabel.startsWith("Collecting") ? <><span className="spinner" /> {busyLabel}</> : <><span>▤</span> Analyze whole quiz</>}
+          {busy && busyLabel.startsWith("Analyzing quiz") ? <><span className="spinner" /> {busyLabel} ({elapsedSeconds}s)</> : <><span>▤</span> Analyze quiz batch (up to 6)</>}
         </button>
         <button className="secondary-button" onClick={() => void analyzePage()} disabled={busy || !health?.ollamaAvailable}>
-          {busy && busyLabel.startsWith("Analyzing") ? <><span className="spinner" /> {busyLabel}</> : <><span>✦</span> Analyze visible page</>}
+          {busy && busyLabel.startsWith("Analyzing page") ? <><span className="spinner" /> {busyLabel} ({elapsedSeconds}s)</> : <><span>✦</span> Analyze visible page</>}
         </button>
         <button className="text-button" onClick={() => void listAttachments()} disabled={busy}><span>↳</span> Find downloadable attachments</button>
         <p className="microcopy">SAIA suggests and explains. It does not select quiz options or press Submit for you.</p>
