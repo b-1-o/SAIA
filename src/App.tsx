@@ -24,7 +24,7 @@ type QuizSuggestion = {
 };
 type QuizResult = {
   title: string; kind: string; model: string; fallbackUsed: boolean;
-  questionsFound: number; analyzedQuestions: number; suggestions: QuizSuggestion[]; sources: Source[]; warnings: string[];
+  questionsFound: number; analyzedQuestions: number; screenshotsCaptured?: number; suggestions: QuizSuggestion[]; sources: Source[]; warnings: string[];
 };
 type FileDraft = {
   filename: string; mimeType: string; sourceType: string; extractedText: string;
@@ -313,7 +313,7 @@ export default function App() {
       </section>}
 
       {quiz && <section className="result-panel">
-        <div className="result-head"><span className="result-icon">▤</span><div className="result-heading"><h2>Quiz review</h2><p>{quiz.analyzedQuestions}/{quiz.questionsFound} question groups · {quiz.kind.toUpperCase()} · {quiz.model}</p></div></div>
+        <div className="result-head"><span className="result-icon">▤</span><div className="result-heading"><h2>Quiz review</h2><p>{quiz.analyzedQuestions}/{quiz.questionsFound} question groups · {quiz.screenshotsCaptured || 0} screenshots · {quiz.kind.toUpperCase()} · {quiz.model}</p></div></div>
         {quiz.fallbackUsed && <div className="warning-box">The preferred model was not installed; a fallback was used.</div>}
         <div className="review-note">Suggestions are drafts with explanations. Check the original question, image, and course rules before using them.</div>
         {quiz.suggestions.map((item) => <article className="question-result" key={item.index}>
@@ -367,7 +367,7 @@ export default function App() {
 
       <section className="action-panel">
         <div className="section-title"><div><h2>Worksheet file assistant</h2><p>Select a downloaded assignment to extract text and prepare a DOCX review copy.</p></div></div>
-        <input className="file-input" type="file" accept=".pdf,.docx,.doc,.xlsx,.xls,.csv,.txt,.md,.rtf,.png,.jpg,.jpeg,.webp" onChange={(event) => { setSelectedFile(event.target.files?.[0] || null); setFileDraft(null); }} />
+        <input className="file-input" type="file" accept=".pdf,.docx,.xlsx,.xls,.csv,.txt,.md,.rtf,.png,.jpg,.jpeg,.webp" onChange={(event) => { setSelectedFile(event.target.files?.[0] || null); setFileDraft(null); }} />
         <small className="file-help">PDF, DOCX, XLSX, CSV, TXT, RTF, PNG, JPG or WEBP · up to 8 MB</small>
         <button className="primary-button" onClick={() => void prepareFile()} disabled={busy || !selectedFile || !health?.ollamaAvailable}>
           {busy && busyLabel.startsWith("Reading") ? <><span className="spinner" /> {busyLabel}</> : <><span>▧</span> Prepare review draft</>}
