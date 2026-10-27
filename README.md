@@ -24,7 +24,7 @@ SAIA is a local-first browser extension and local Node.js service for reviewing 
 - Node.js 20+
 - Ollama installed and running
 - Brave or Chrome
-- About 8 GB RAM is workable for experimentation, but a larger model may be slow or cause memory pressure.
+- On systems with less than 10 GiB RAM, SAIA automatically routes reasoning/vision requests to the lightweight model to avoid exhausting memory; verify results carefully because this model is less capable. Quiz OCR reuses one worker and processes at most 3 viewport screenshots per batch.
 
 Default local models:
 - `qwen3.5:0.8b` — lightweight profile
