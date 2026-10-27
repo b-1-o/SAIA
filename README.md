@@ -14,7 +14,7 @@ SAIA is a local-first browser extension and local Node.js service for reviewing 
 
 1. **Course and assignment scan** — extracts available course and assignment links, nearby status labels and due/context text from rendered LMS pages. It follows up to 20 discovered course links in temporary inactive tabs, merges links and saves the results in `chrome.storage.local`. The LMS interface varies; status is marked unknown unless the page provides recognizable completion text. This is best-effort, not an authoritative gradebook report.
 2. **Batch quiz review** — scrapes visible question groups, labels/options, response-control labels and image descriptions from the current quiz page, captures the visible viewport, runs OCR and sends up to 40 detected questions to the chosen local model in one batch. It returns suggestions and explanations per question, plus a small number of optional factual search sources. It does not click answer choices or submit a quiz.
-3. **Worksheet file assistant** — accepts a user-selected local PDF, DOCX, XLS/XLSX/CSV, TXT/MD, RTF or PNG/JPG/WEBP (up to 8 MB). It extracts available text, prepares suggested responses with explanations and creates a new DOCX review copy. It does not overwrite the original. PDF scans without selectable text are reported; page-by-page scan OCR is not yet implemented.
+3. **Worksheet file assistant** — accepts a user-selected local PDF, DOCX, XLS/XLSX/CSV, TXT/MD, RTF or PNG/JPG/WEBP (up to 8 MB). It extracts available text, prepares suggested responses with explanations and creates a new DOCX review copy. It does not overwrite the original. Sparse/scanned PDF pages are rendered locally and OCRed for up to 3 pages per file; the rendered page images are also passed to the multimodal model.
 4. **Attach reviewed draft** — on an explicit click and confirmation, attempts to attach the generated DOCX to a single file input on the active LMS page. It intentionally does not press the LMS Submit button; review the file and submit through Schoology yourself.
 5. **Image OCR and highlights** — visible viewport screenshot, recognized text lines and coordinates, displayed as highlight rectangles over the screenshot.
 6. **Automatic model routing** — lightweight model for routine prose; heavier profile for math, long text or visual-dependent content. This is heuristic routing, not a self-training model.
@@ -56,7 +56,7 @@ Add `TAVILY_API_KEY=...` to `.env` to enable optional search. Without a key, SAI
 ## Limitations
 
 - Discovery depends on links and status labels rendered by the current LMS pages; dynamic layouts, closed courses, paginated content and external tools may be missed.
-- Quiz collection is best-effort, especially for iframe-based content or custom controls. A visible viewport screenshot covers only the currently visible screen; scroll and rerun if needed.
+- Quiz collection is best-effort, especially for iframe-based content or custom controls. A quiz mode scrolls and captures up to 6 viewport images, then restores the original scroll position; very long quizzes can exceed that coverage.
 - OCR and local models can misread text or diagrams. Confidence is a model estimate, not a calibrated probability.
 - PDF image-only pages do not yet get rendered to images for OCR.
 - File attachments are prepared as new review copies; complex original formatting may not be preserved.
