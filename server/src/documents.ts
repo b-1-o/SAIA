@@ -205,7 +205,9 @@ export async function prepareDocument(args: {
       ? (process.env.SAIA_MODEL_REASONING || "qwen3.5:4b")
       : (process.env.SAIA_MODEL_FAST || "qwen3.5:0.8b");
   const model = await resolveModel(preferredName);
-  if (model.fallbackUsed) warnings.push("Preferred model was not installed; draft generated with " + model.model + ".");
+  if (model.fallbackUsed) warnings.push(model.fallbackReason === "low-memory"
+    ? "Low-memory mode selected " + model.model + " to avoid exhausting RAM. The draft may be less accurate; verify each item."
+    : "Preferred model was not installed; draft generated with " + model.model + ".");
 
   const system = [
     "You are SAIA, a study helper preparing a REVIEW DRAFT from a provided worksheet.",
