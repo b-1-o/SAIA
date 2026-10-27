@@ -9,35 +9,77 @@ export type OCRResult = {
   warning?: string;
 };
 
+type Box = { x0: number; y0: number; x1: number; y1: number };
+type OCRBlockLine = { text?: string; bbox?: Box; words?: Array<{ text?: string }> };
+type OCRData = {
+  text?: string;
+  blocks?: Array<{ paragraphs?: Array<{ lines?: OCRBlockLine[] }> }>;
+  imageSize?: { width?: number; height?: number };
+};
+
 function getImageBytes(dataUrl: string): Buffer {
   const match = dataUrl.match(/^data:image\/(?:png|jpeg|jpg|webp);base64,([A-Za-z0-9+/=\r\n]+)$/i);
   if (!match) throw new Error("Image data must be a supported base64 data URL.");
   return Buffer.from(match[1].replace(/\s/g, ""), "base64");
 }
 
+function getImageDimensions(bytes: Buffer): { width: number; height: number } {
+  if (bytes.length > 24 && bytes[0] === 0x89 && bytes.toString("ascii", 1, 4) === "PNG") {
+    return { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) };
+  }
+
+  if (bytes.length > 4 && bytes[0] === 0xff && bytes[1] === 0xd8) {
+    const startOfFrame = new Set([0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf]);
+    let offset = 2;
+    while (offset + 9 < bytes.length) {
+      if (bytes[offset] !== 0xff) { offset += 1; continue; }
+      const marker = bytes[offset + 1];
+      offset += 2;
+      if (marker === 0xd8 || marker === 0xd9 || (marker >= 0xd0 && marker <= 0xd7)) continue;
+      if (offset + 7 >= bytes.length) break;
+      const segmentLength = bytes.readUInt16BE(offset);
+      if (startOfFrame.has(marker)) {
+        return { height: bytes.readUInt16BE(offset + 3), width: bytes.readUInt16BE(offset + 5) };
+      }
+      if (segmentLength < 2) break;
+      offset += segmentLength;
+    }
+  }
+
+  return { width: 0, height: 0 };
+}
+
 export async function recognizeImage(dataUrl: string): Promise<OCRResult> {
   let worker: Awaited<ReturnType<typeof createWorker>> | undefined;
   try {
+    const bytes = getImageBytes(dataUrl);
     worker = await createWorker("eng");
-    const result = await worker.recognize(getImageBytes(dataUrl));
-    const lines: OCRLine[] = result.data.lines
-      .map((line) => ({
-        text: String(line.text || "").trim(),
-        bbox: {
-          x0: Number(line.bbox.x0),
-          y0: Number(line.bbox.y0),
-          x1: Number(line.bbox.x1),
-          y1: Number(line.bbox.y1)
-        }
-      }))
+    // Tesseract.js v6 requires the blocks output flag for structured text geometry.
+    const result = await worker.recognize(bytes, {}, { blocks: true });
+    const data = result.data as unknown as OCRData;
+    const lines: OCRLine[] = (data.blocks || [])
+      .flatMap((block) => (block.paragraphs || []).flatMap((paragraph) => paragraph.lines || []))
+      .map((line) => {
+        const bbox = line.bbox || { x0: 0, y0: 0, x1: 0, y1: 0 };
+        return {
+          text: String(line.text || (line.words || []).map((word) => word.text || "").join(" ")).trim(),
+          bbox: {
+            x0: Number(bbox.x0),
+            y0: Number(bbox.y0),
+            x1: Number(bbox.x1),
+            y1: Number(bbox.y1)
+          }
+        };
+      })
       .filter((line) => line.text.length > 0 && line.bbox.x1 > line.bbox.x0 && line.bbox.y1 > line.bbox.y0);
 
-    const size = (result.data as typeof result.data & { imageSize?: { width?: number; height?: number } }).imageSize;
+    const dimensions = getImageDimensions(bytes);
+    const reportedSize = data.imageSize;
     return {
-      text: String(result.data.text || "").trim(),
+      text: String(data.text || "").trim(),
       lines,
-      width: Number(size?.width || 0),
-      height: Number(size?.height || 0)
+      width: Number(dimensions.width || reportedSize?.width || 0),
+      height: Number(dimensions.height || reportedSize?.height || 0)
     };
   } catch (error) {
     return {
