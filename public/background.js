@@ -266,7 +266,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
     if (message.type === "SAIA_ANALYZE_QUIZ") {
       const questionData = await askContentScript(tab.id, "SAIA_COLLECT_QUESTIONS");
-      const capture = await captureQuizScreenshots(tab, 6);
+      const capture = await captureQuizScreenshots(tab, 3);
       const coverageNote = capture.partial
         ? "Visual coverage warning: SAIA captured " + capture.capturedViewports + " viewport images out of an estimated " + capture.totalViewports + ". Some later diagrams or images may be missing from visual analysis."
         : "Visual coverage: " + capture.capturedViewports + " viewport image(s) captured across the page.";
