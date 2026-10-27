@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "SAIA — Local Study Assistant",
-  "version": "0.1.0",
-  "description": "Local OCR, image understanding, and automatic model routing for study pages.",
+  "version": "0.2.0",
+  "description": "Course discovery, quiz review, OCR, local model routing, and worksheet drafts.",
   "permissions": ["activeTab", "tabs", "scripting", "storage"],
   "host_permissions": [
     "https://lms.lausd.net/*",
