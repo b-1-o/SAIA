@@ -14,6 +14,12 @@ test("routes image-only questions to vision", () => {
   assert.equal(classifyTask("Read the diagram and identify the labels.", 1).kind, "visual");
 });
 
+test("keeps ordinary readable quiz text on the lightweight profile despite viewport capture", () => {
+  const question = "What caused the Great Depression? Read the source paragraph carefully and choose the best explanation. " +
+    "The question refers to historical causes and the text provides the context, so it does not require reading a graph, map, image, or diagram.";
+  assert.equal(classifyTask(question, 1).kind, "research");
+});
+
 test("supports an explicit task override", () => {
   assert.equal(classifyTask("hello", 0, "reading").kind, "reading");
 });
