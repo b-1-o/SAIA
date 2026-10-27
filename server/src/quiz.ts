@@ -225,18 +225,22 @@ export async function analyzeQuiz(input: {
     targetQuestions: QuizQuestionInput[]
   ) => {
     const expected = new Set(targetQuestions.map((question) => question.index));
+    const returnedIndices = items.map((item) => Number(item.index));
+    const allUseOriginalIndices = returnedIndices.length > 0 &&
+      returnedIndices.every((index) => Number.isInteger(index) && expected.has(index));
+    const allUseBatchPositions = returnedIndices.length > 0 &&
+      returnedIndices.every((index) =>
+        Number.isInteger(index) && index >= 1 && index <= targetQuestions.length
+      );
+    const remapFromBatchPositions = !allUseOriginalIndices && allUseBatchPositions;
+
     for (const [position, item] of items.entries()) {
-      const returnedIndex = Number(item.index);
+      const returnedIndex = returnedIndices[position];
       let targetIndex: number | undefined;
-      if (Number.isInteger(returnedIndex) && expected.has(returnedIndex)) {
-        targetIndex = returnedIndex;
-      } else if (
-        Number.isInteger(returnedIndex) &&
-        returnedIndex >= 1 &&
-        returnedIndex <= targetQuestions.length
-      ) {
-        // Handle models that number a batch from 1 instead of preserving original quiz indices.
+      if (remapFromBatchPositions) {
         targetIndex = targetQuestions[returnedIndex - 1]?.index;
+      } else if (Number.isInteger(returnedIndex) && expected.has(returnedIndex)) {
+        targetIndex = returnedIndex;
       } else if (items.length === targetQuestions.length) {
         targetIndex = targetQuestions[position]?.index;
       }
