@@ -68,3 +68,31 @@ test("returns an empty item list for completely invalid model output", () => {
     items: []
   });
 });
+
+test("rejects template placeholders instead of displaying them as quiz suggestions", () => {
+  const parsed = parseQuizModelResponse(JSON.stringify({
+    items: [{
+      index: 1,
+      suggestedResponse: "brief learning-oriented response",
+      explanation: "one concise sentence",
+      confidence: 0.5,
+      needsReview: true
+    }]
+  }));
+  assert.equal(parsed.items.length, 0);
+});
+
+test("keeps actual concise responses and explanations", () => {
+  const parsed = parseQuizModelResponse(JSON.stringify({
+    items: [{
+      index: 2,
+      suggestedResponse: "Evaluate the polynomial at the divisor's zero.",
+      explanation: "The Remainder Theorem states that dividing by x - a leaves remainder f(a).",
+      confidence: 0.75,
+      needsReview: false
+    }]
+  }));
+  assert.equal(parsed.items.length, 1);
+  assert.equal(parsed.items[0].suggestedResponse, "Evaluate the polynomial at the divisor's zero.");
+});
+
