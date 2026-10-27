@@ -2,6 +2,20 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { buildSearchQuery, classifyTask, shouldSearch } from "./taskRouter.js";
 import { parseQuizModelResponse } from "./quiz.js";
+import { shouldUseVisualAnalysis } from "./analyzer.js";
+
+test("does not use vision for generic LMS chrome or image metadata", () => {
+  const page = "Courses Groups Resources Grades Skip to Content Image 1: schoology logo";
+  assert.equal(shouldUseVisualAnalysis("auto", "03.02 Theorems of Algebra | Schoology", page), false);
+});
+
+test("uses vision when a question explicitly refers to a graph", () => {
+  assert.equal(shouldUseVisualAnalysis("auto", "Algebra II", "Look at the graph below and identify its x-intercepts."), true);
+});
+
+test("honors an explicit visual task override", () => {
+  assert.equal(shouldUseVisualAnalysis("visual", "Algebra II", "Solve the equation."), true);
+});
 
 test("routes routine prose to the lightweight profile", () => {
   assert.equal(classifyTask("Read this paragraph and summarize it.").kind, "general");
