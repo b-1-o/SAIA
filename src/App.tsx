@@ -206,7 +206,7 @@ export default function App() {
     const result = await runExtensionAction<Analysis>("SAIA_ANALYZE_CURRENT", "Analyzing page…");
     if (result) {
       setAnalysis(result);
-      void appendHistory("analysis", "Page analysis · " + result.kind, result);
+      await appendHistory("analysis", "Page analysis · " + result.kind, result);
     }
   }
 
@@ -219,7 +219,7 @@ export default function App() {
       setQuiz(result);
       const firstIndex = result.suggestions[0]?.index ?? startIndex + 1;
       const lastIndex = result.suggestions[result.suggestions.length - 1]?.index ?? firstIndex;
-      void appendHistory("quiz", "Quiz review · " + result.title + " · Q" + firstIndex + "–" + lastIndex, result);
+      await appendHistory("quiz", "Quiz review · " + result.title + " · Q" + firstIndex + "–" + lastIndex, result);
     }
   }
 
@@ -228,7 +228,7 @@ export default function App() {
     if (result) {
       setScan(result);
       const incomplete = result.assignments.filter((item) => item.status === "incomplete").length;
-      void appendHistory("scan", "Assignment scan · " + result.assignments.length + " task links", result, result.scanUrl);
+      await appendHistory("scan", "Assignment scan · " + result.assignments.length + " task links", result, result.scanUrl);
       setNotice("Scan finished: " + result.assignments.length + " task links found; " + incomplete + " marked incomplete. Unknown statuses need checking.");
     }
   }
@@ -237,7 +237,7 @@ export default function App() {
     const result = await runExtensionAction<{ attachments: Attachment[] }>("SAIA_LIST_ATTACHMENTS", "Finding file attachments…");
     if (result) {
       setAttachments(result.attachments || []);
-      void appendHistory("attachments", "Attachment search · " + (result.attachments || []).length + " file(s)", result.attachments || []);
+      await appendHistory("attachments", "Attachment search · " + (result.attachments || []).length + " file(s)", result.attachments || []);
       if (!(result.attachments || []).length) setNotice("No direct PDF/DOCX/XLSX-style file links were found on this page.");
     }
   }
