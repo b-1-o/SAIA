@@ -76,6 +76,7 @@ export default function App() {
   const [notice, setNotice] = useState("");
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [quiz, setQuiz] = useState<QuizResult | null>(null);
+  const [quizBatchStart, setQuizBatchStart] = useState(0);
   const [scan, setScan] = useState<ScanResult | null>(null);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [useSearch, setUseSearch] = useState(true);
@@ -127,13 +128,13 @@ export default function App() {
     if (typeof chrome !== "undefined" && chrome.storage?.local) chrome.storage.local.set({ useSearch: enabled });
   }
 
-  async function runExtensionAction<T>(type: string, label: string): Promise<T | null> {
+  async function runExtensionAction<T>(type: string, label: string, payload: Record<string, unknown> = {}): Promise<T | null> {
     setBusy(true);
     setBusyLabel(label);
     setError("");
     setNotice("");
     try {
-      const result = await extensionMessage<T>(type);
+      const result = await extensionMessage<T>(type, payload);
       if (!result.ok || !result.data) throw new Error(result.error || "The action did not return a result.");
       return result.data;
     } catch (issue) {
@@ -153,10 +154,11 @@ export default function App() {
     if (result) setAnalysis(result);
   }
 
-  async function analyzeWholeQuiz() {
+  async function analyzeWholeQuiz(startIndex = 0) {
     setAnalysis(null);
     setQuiz(null);
-    const result = await runExtensionAction<QuizResult>("SAIA_ANALYZE_QUIZ", "Analyzing quiz batch…");
+    setQuizBatchStart(startIndex);
+    const result = await runExtensionAction<QuizResult>("SAIA_ANALYZE_QUIZ", "Analyzing quiz batch…", { startIndex });
     if (result) setQuiz(result);
   }
 
@@ -344,7 +346,7 @@ export default function App() {
       </section>}
 
       {quiz && <section className="result-panel">
-        <div className="result-head"><span className="result-icon">▤</span><div className="result-heading"><h2>Quiz review</h2><p>{quiz.analyzedQuestions}/{quiz.questionsFound} question groups · {quiz.screenshotsCaptured || 0} screenshots · {quiz.kind.toUpperCase()} · {quiz.model}</p></div></div>
+        <div className="result-head"><span className="result-icon">▤</span><div className="result-heading"><h2>Quiz review</h2><p>{quiz.analyzedQuestions} in this batch · {quiz.questionsFound} detected total · {quiz.screenshotsCaptured || 0} screenshots · {quiz.kind.toUpperCase()} · {quiz.model}</p></div></div>
         {quiz.fallbackUsed && <div className="warning-box">A fallback model was used, possibly to reduce RAM use. Check the warnings below and verify the suggestions.</div>}
         <div className="review-note">Suggestions are drafts with explanations. Check the original question, image, and course rules before using them.</div>
         {quiz.suggestions.map((item) => <article className="question-result" key={item.index}>
@@ -356,6 +358,10 @@ export default function App() {
           {item.needsReview && <small className="error-inline">Review this question carefully.</small>}
         </article>)}
         {quiz.warnings.map((warning, index) => <div className="warning-box" key={index}>{warning}</div>)}
+        <div className="batch-navigation">
+          {quizBatchStart > 0 && <button className="secondary-button" onClick={() => void analyzeWholeQuiz(Math.max(0, quizBatchStart - 6))} disabled={busy}>Previous 6</button>}
+          {quizBatchStart + quiz.analyzedQuestions < quiz.questionsFound && <button className="primary-button" onClick={() => void analyzeWholeQuiz(quizBatchStart + quiz.analyzedQuestions)} disabled={busy}>Analyze next 6 questions</button>}
+        </div>
         {quiz.sources?.length > 0 && <div className="sources-section"><span className="label">FACTUAL SOURCES</span>
           {quiz.sources.map((source, index) => <a className="source-item" href={source.url} target="_blank" rel="noreferrer" key={source.url + index}>
             <span className="source-index">{String(index + 1).padStart(2, "0")}</span>
