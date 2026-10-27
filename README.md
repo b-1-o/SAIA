@@ -1,71 +1,68 @@
 # SAIA — Local Study Assistant
 
-SAIA is a local-first browser assistant for reading course pages, understanding visible quiz questions (including text inside screenshots and diagrams), and preparing reviewable explanations. It does **not** automatically select or submit answers.
+SAIA is a local-first browser extension and local Node.js service for reviewing coursework in the signed-in LAUSD LMS / Schoology session.
 
 ## Architecture
 
-- **Chromium extension** (React + Vite, Manifest V3): user-triggered capture of the active LAUSD LMS page and visible viewport.
-- **Local API** (Node.js + TypeScript): task classification, model routing, local OCR, optional web search, structured results.
-- **Ollama**: local small model for routine text; larger multimodal model for mathematics/reasoning and images.
-- **Tesseract.js**: offline-capable OCR after its English language data has been cached locally.
-- **Tavily**: optional server-side search; unused unless `TAVILY_API_KEY` is configured and search is enabled.
+- **Browser extension** (React + Vite + Manifest V3): reads the active LMS page, visible quiz inputs and links; can scan discovered course pages in temporary inactive tabs.
+- **Local API** (Node.js + TypeScript): task classification, batch quiz review, OCR, local model routing, file parsing and DOCX draft generation.
+- **Ollama**: all language-model inference runs locally.
+- **Tesseract.js**: offline OCR after English language data is cached locally.
+- **Tavily**: optional factual web search; the API key stays in the local server `.env`.
+
+## What is implemented in v0.2.0
+
+1. **Course and assignment scan** — extracts available course and assignment links, nearby status labels and due/context text from rendered LMS pages. It follows up to 20 discovered course links in temporary inactive tabs, merges links and saves the results in `chrome.storage.local`. The LMS interface varies; status is marked unknown unless the page provides recognizable completion text. This is best-effort, not an authoritative gradebook report.
+2. **Batch quiz review** — scrapes visible question groups, labels/options, response-control labels and image descriptions from the current quiz page, captures the visible viewport, runs OCR and sends up to 40 detected questions to the chosen local model in one batch. It returns suggestions and explanations per question, plus a small number of optional factual search sources. It does not click answer choices or submit a quiz.
+3. **Worksheet file assistant** — accepts a user-selected local PDF, DOCX, XLS/XLSX/CSV, TXT/MD, RTF or PNG/JPG/WEBP (up to 8 MB). It extracts available text, prepares suggested responses with explanations and creates a new DOCX review copy. It does not overwrite the original. PDF scans without selectable text are reported; page-by-page scan OCR is not yet implemented.
+4. **Attach reviewed draft** — on an explicit click and confirmation, attempts to attach the generated DOCX to a single file input on the active LMS page. It intentionally does not press the LMS Submit button; review the file and submit through Schoology yourself.
+5. **Image OCR and highlights** — visible viewport screenshot, recognized text lines and coordinates, displayed as highlight rectangles over the screenshot.
+6. **Automatic model routing** — lightweight model for routine prose; heavier profile for math, long text or visual-dependent content. This is heuristic routing, not a self-training model.
 
 ## Requirements
 
 - Node.js 20+
 - Ollama installed and running
-- Chromium-based browser (Brave/Chrome)
-- Recommended starting models for a machine with about 8 GB RAM:
-  - `qwen3.5:0.8b` — fast text tasks
-  - `qwen3.5:4b` — visual questions and multi-step reasoning
+- Brave or Chrome
+- About 8 GB RAM is workable for experimentation, but a larger model may be slow or cause memory pressure.
 
-Both are multimodal Qwen 3.5 models. Model files are downloaded once; inference runs locally. The larger model needs more memory and will be slower. SAIA asks Ollama to unload models after each request by default to reduce RAM pressure; change `OLLAMA_KEEP_ALIVE` in `.env` only if your system has enough memory.
+Default local models:
+- `qwen3.5:0.8b` — lightweight profile
+- `qwen3.5:4b` — math/reasoning and vision profile
+
+Model size and speed depend on the model quantization and hardware. Ollama may download several gigabytes per model. SAIA sets `OLLAMA_KEEP_ALIVE=0` by default to unload models after each request and reduce memory pressure.
 
 ## Setup
 
 ```bash
-# 1. Install dependencies
+git clone https://github.com/b-1-o/SAIA.git
+cd SAIA
 npm install
-
-# 2. Copy configuration
 cp .env.example .env
 
-# 3. Pull local models (one-time download)
 ollama pull qwen3.5:0.8b
 ollama pull qwen3.5:4b
 
-# 4. Start local API and extension dev server
+npm run build
 npm run dev
 ```
 
-Local API: `http://127.0.0.1:41732`  
-Extension dev page: Vite serves the popup at `http://127.0.0.1:5173`.
+The local API runs at `http://127.0.0.1:41732`; the popup development server runs at `http://127.0.0.1:5173`. For the browser extension, open `brave://extensions` or `chrome://extensions`, enable Developer mode and choose **Load unpacked** → the project's `dist` folder. Keep `npm run dev` running while you use the extension.
 
-For actual page capture, build the extension:
+## Optional search
 
-```bash
-npm run build
-```
+Add `TAVILY_API_KEY=...` to `.env` to enable optional search. Without a key, SAIA still works locally. Quiz batches search at most a small number of factual questions to conserve quota. Search queries are cleaned of common email/name/phone/student-ID patterns, but always inspect queries before using a third-party API; no cleaning heuristic can guarantee removal of all personal data.
 
-Then open `brave://extensions` or `chrome://extensions`, enable Developer mode, and choose **Load unpacked** → the generated `dist` folder. After editing, click **Reload** on the extension card.
+## Limitations
 
-## Settings
-
-See `.env.example`. Optional Tavily search is kept on the local API; the key is never bundled into the extension. Without a key, the system works without web search. The API binds to loopback only, so it is not exposed to the LAN.
-
-## Image and OCR behavior
-
-The extension captures the **currently visible viewport** on explicit user action, then sends it only to the local API. OCR returns recognized lines and bounding boxes; the multimodal model analyzes visual context (including diagrams, symbols, and question layout). The popup overlays boxes on the screenshot and displays extracted text. Scroll to another part of a long quiz and analyze again.
-
-OCR coordinates and model interpretations can be wrong. Review the extracted text and reasoning before using a result. Network search is not used for mathematical problems by default.
-
-## Current scope
-
-This first version implements current-page text capture, visible-viewport image capture, OCR highlighting, heuristic model routing, optional Tavily source lookup, health/status display, and a result-review UI. File download/edit/upload workflows and full-course task discovery are later modules.
+- Discovery depends on links and status labels rendered by the current LMS pages; dynamic layouts, closed courses, paginated content and external tools may be missed.
+- Quiz collection is best-effort, especially for iframe-based content or custom controls. A visible viewport screenshot covers only the currently visible screen; scroll and rerun if needed.
+- OCR and local models can misread text or diagrams. Confidence is a model estimate, not a calibrated probability.
+- PDF image-only pages do not yet get rendered to images for OCR.
+- File attachments are prepared as new review copies; complex original formatting may not be preserved.
+- The attach action fills a file picker when the active page exposes one supported control. It does not submit work.
+- No school password is requested or stored. The API binds to loopback only; optional search sends cleaned query text to Tavily.
 
 ## Safety and privacy
 
-- No school password is requested or stored.
-- The extension works from the signed-in browser session and only analyzes when clicked.
-- Quiz answers are presented as suggestions with reasoning; SAIA does not click choices or submit schoolwork.
-- Do not send names, student IDs, or other private details to web search.
+SAIA does not attempt to bypass access controls, access hidden answer keys, auto-click quiz options, or automatically submit graded quizzes. Suggestions and generated documents must be reviewed against course materials and teacher instructions.
