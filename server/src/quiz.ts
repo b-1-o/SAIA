@@ -1,5 +1,6 @@
 import { config } from "./config.js";
-import { classifyTask } from "./taskRouter.js";
+import { buildSearchQuery, classifyTask, shouldSearch } from "./taskRouter.js";
+import { searchWeb } from "./search.js";
 import { recognizeImage } from "./ocr.js";
 import { chatWithOllama, resolveModel } from "./ollama.js";
 import type { RequestedTaskKind, TaskKind } from "./types.js";
@@ -54,6 +55,7 @@ export async function analyzeQuiz(input: {
   questionsFound: number;
   analyzedQuestions: number;
   suggestions: QuizSuggestion[];
+  sources: Array<{ title: string; url: string; content: string }>;
   warnings: string[];
 }> {
   const warnings: string[] = [];
@@ -75,9 +77,26 @@ export async function analyzeQuiz(input: {
   ).join("\n\n");
 
   const routeText = [input.title, questionText, ocrText].filter(Boolean).join("\n");
-  const route = classifyTask(routeText, input.images.length + questions.some((q) => q.images.length > 0) ? 1 : 0, "auto");
+  const hasVisualContent = input.images.length > 0 || questions.some((question) => question.images.length > 0);
+  const route = classifyTask(routeText, hasVisualContent ? 1 : 0, "auto");
   const resolved = await resolveModel(route.preferredModel);
   if (resolved.fallbackUsed) warnings.push("Preferred model " + route.preferredModel + " is not installed; using " + resolved.model + ".");
+
+  const sources: Array<{ title: string; url: string; content: string }> = [];
+  if (input.useSearch && config.tavilyApiKey) {
+    const candidates = questions.filter((question) => question.text && shouldSearch(question.text, "research")).slice(0, 3);
+    const results = await Promise.allSettled(candidates.map((question) => searchWeb(buildSearchQuery(question.text))));
+    for (const result of results) {
+      if (result.status === "fulfilled") sources.push(...result.value);
+      else warnings.push("A factual search request failed; continuing with local analysis.");
+    }
+  } else if (input.useSearch && !config.tavilyApiKey) {
+    warnings.push("Search is enabled, but no TAVILY_API_KEY is configured.");
+  }
+  const uniqueSources = Array.from(new Map(sources.map((source) => [source.url, source])).values()).slice(0, 8);
+  const sourceContext = uniqueSources.length
+    ? uniqueSources.map((source, index) => "[" + (index + 1) + "] " + source.title + "\\nURL: " + source.url + "\\n" + source.content).join("\\n\\n")
+    : "No web sources retrieved.";
 
   const system = [
     "You are SAIA, a careful study assistant. Analyze each supplied question with supporting reasoning suitable for learning.",
@@ -137,11 +156,6 @@ export async function analyzeQuiz(input: {
     };
   });
 
-  if (input.useSearch) {
-    warnings.push(config.tavilyApiKey
-      ? "Batch quiz analysis currently prioritizes local course material and visual context; use the single-question analyzer for factual web lookup."
-      : "Search was enabled, but no TAVILY_API_KEY is configured.");
-  }
   return {
     title: input.title || "Quiz review",
     kind: route.kind,
@@ -150,6 +164,7 @@ export async function analyzeQuiz(input: {
     questionsFound: input.questions.length,
     analyzedQuestions: suggestions.length,
     suggestions,
+    sources: uniqueSources,
     warnings
   };
 }
