@@ -266,15 +266,23 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
     if (message.type === "SAIA_ANALYZE_QUIZ") {
       const questionData = await askContentScript(tab.id, "SAIA_COLLECT_QUESTIONS");
-      const capture = await captureQuizScreenshots(tab, 3);
-      const coverageNote = capture.partial
-        ? "Visual coverage warning: SAIA captured " + capture.capturedViewports + " viewport images out of an estimated " + capture.totalViewports + ". Some later diagrams or images may be missing from visual analysis."
-        : "Visual coverage: " + capture.capturedViewports + " viewport image(s) captured across the page.";
+      const questions = questionData.questions || [];
+      const visualPattern = /\\b(diagram|graph|chart|figure|picture|image|plot|coordinate plane|shown below|shown above|in the diagram|look at the graph|based on the graph)\\b/i;
+      const needsVisual = questions.some((question) =>
+        (question.images || []).length > 0 || visualPattern.test(question.text || "")
+      );
+      // Text-first questions use extracted DOM content only; avoid screenshot/OCR overhead.
+      const capture = needsVisual
+        ? await captureQuizScreenshots(tab, 1)
+        : { images: [], capturedViewports: 0, totalViewports: 0, partial: false };
+      const coverageNote = needsVisual
+        ? "Visual coverage: " + capture.capturedViewports + " viewport image(s) captured for questions with possible diagrams."
+        : "Visual processing skipped: detected questions appear text-based, so SAIA will use extracted page text.";
       body = {
         title: page.title,
         pageUrl: page.url,
         text: page.text + "\n\n" + coverageNote,
-        questions: questionData.questions || [],
+        questions,
         images: capture.images,
         useSearch: Boolean(settings.useSearch)
       };
