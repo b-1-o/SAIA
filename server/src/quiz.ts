@@ -54,6 +54,7 @@ export async function analyzeQuiz(input: {
   fallbackUsed: boolean;
   questionsFound: number;
   analyzedQuestions: number;
+  screenshotsCaptured: number;
   suggestions: QuizSuggestion[];
   sources: Array<{ title: string; url: string; content: string }>;
   warnings: string[];
@@ -64,6 +65,8 @@ export async function analyzeQuiz(input: {
     throw new Error("No question groups were detected. Scroll to a question and try Analyze visible page, or zoom the page so question text is selectable.");
   }
   if (input.questions.length > questions.length) warnings.push("Only the first 40 detected question groups were analyzed in this batch.");
+  const coverageWarning = input.pageText.match(/Visual coverage warning:[^\n]*/i);
+  if (coverageWarning) warnings.push(coverageWarning[0]);
 
   const ocrResults = [] as Awaited<ReturnType<typeof recognizeImage>>[];
   // OCR screenshots sequentially so multiple views do not create several WASM workers at once on 8 GB RAM.
@@ -165,6 +168,7 @@ export async function analyzeQuiz(input: {
     fallbackUsed: resolved.fallbackUsed,
     questionsFound: input.questions.length,
     analyzedQuestions: suggestions.length,
+    screenshotsCaptured: input.images.length,
     suggestions,
     sources: uniqueSources,
     screenshotsCaptured: input.images.length,
