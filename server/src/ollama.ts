@@ -23,7 +23,7 @@ export async function isOllamaAvailable(): Promise<boolean> {
   }
 }
 
-export async function resolveModel(preferred: string): Promise<{
+export async function resolveModel(preferred: string, options: { allowPreferredOnLowMemory?: boolean } = {}): Promise<{
   model: string;
   fallbackUsed: boolean;
   fallbackReason: "low-memory" | "missing" | null;
@@ -35,7 +35,7 @@ export async function resolveModel(preferred: string): Promise<{
   const fastCandidate = names.find((name) => name === config.fastModel || name.startsWith(config.fastModel + ":"));
 
   // On systems with less than 10 GiB RAM, prefer the lightweight model to avoid swap storms/OOM.
-  if (lowMemorySystem && preferred !== config.fastModel && fastCandidate) {
+  if (lowMemorySystem && preferred !== config.fastModel && fastCandidate && !options.allowPreferredOnLowMemory) {
     return { model: fastCandidate, fallbackUsed: true, fallbackReason: "low-memory", installed: names };
   }
 
