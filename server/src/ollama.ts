@@ -57,6 +57,7 @@ export async function chatWithOllama(args: {
   system: string;
   prompt: string;
   images: string[];
+  maxTokens?: number;
 }): Promise<string> {
   const images = args.images.map((image) => image.slice(image.indexOf(",") + 1)).filter(Boolean);
   const userMessage: { role: string; content: string; images?: string[] } = {
@@ -65,7 +66,11 @@ export async function chatWithOllama(args: {
   };
   if (images.length > 0) userMessage.images = images;
 
-  const response = await fetch(config.ollamaBaseUrl + "/api/chat", {
+  const startedAt = Date.now();
+  console.info("[SAIA Ollama] Start model=" + args.model + " promptChars=" + args.prompt.length + " images=" + images.length + ".");
+  let response: Response;
+  try {
+    response = await fetch(config.ollamaBaseUrl + "/api/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -77,10 +82,17 @@ export async function chatWithOllama(args: {
       stream: false,
       format: "json",
       keep_alive: config.keepAlive,
-      options: { temperature: 0.15, num_ctx: 8192 }
+      options: { temperature: 0.15, num_ctx: 4096, num_predict: args.maxTokens ?? 768 }
     }),
-    signal: AbortSignal.timeout(180000)
-  });
+      signal: AbortSignal.timeout(120000)
+    });
+  } catch (error) {
+    console.error("[SAIA Ollama] Request failed after " + Math.round((Date.now() - startedAt) / 1000) + "s.");
+    if (error instanceof Error && error.name === "TimeoutError") {
+      throw new Error("The local AI did not finish within 120 seconds. Try a smaller visible-page request or check system memory.");
+    }
+    throw error;
+  }
 
   if (!response.ok) {
     const detail = await response.text().catch(() => "");
@@ -88,5 +100,7 @@ export async function chatWithOllama(args: {
   }
   const payload = await response.json() as OllamaChatResponse;
   if (payload.error) throw new Error(payload.error);
-  return String(payload.message?.content || "");
+  const content = String(payload.message?.content || "");
+  console.info("[SAIA Ollama] Finished in " + Math.round((Date.now() - startedAt) / 1000) + "s; outputChars=" + content.length + ".");
+  return content;
 }
