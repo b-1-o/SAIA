@@ -166,6 +166,26 @@ export default function App() {
     }
   }
 
+  async function downloadAttachmentSelected(item: Attachment) {
+    setBusy(true);
+    setBusyLabel("Starting download…");
+    setError("");
+    setNotice("");
+    try {
+      const result = await extensionMessage<{ downloadId: number; filename: string }>("SAIA_DOWNLOAD_ATTACHMENT", {
+        url: item.url,
+        filename: item.filename || item.title || "schoology-file"
+      });
+      if (!result.ok || !result.data) throw new Error(result.error || "Browser download failed.");
+      setNotice("Browser download started for " + result.data.filename + ". Choose where to save it.");
+    } catch (issue) {
+      setError(issue instanceof Error ? issue.message : "Browser download failed.");
+    } finally {
+      setBusy(false);
+      setBusyLabel("");
+    }
+  }
+
   async function prepareFile() {
     if (!selectedFile) {
       setError("Choose a file downloaded from the assignment first.");
@@ -360,9 +380,12 @@ export default function App() {
 
       {attachments.length > 0 && <section className="result-panel">
         <div className="section-title"><div><h2>Downloadable attachments</h2><p>Open a file from Schoology, then select it below.</p></div></div>
-        {attachments.map((item, index) => <a className="source-item" href={item.url} target="_blank" rel="noreferrer" key={item.url + index}>
-          <span className="source-index">FILE</span><span><strong>{item.title || item.filename}</strong><small>{item.filename}</small></span><span className="source-arrow">↓</span>
-        </a>)}
+        {attachments.map((item, index) => <div className="attachment-row" key={item.url + index}>
+          <a className="source-item" href={item.url} target="_blank" rel="noreferrer">
+            <span className="source-index">FILE</span><span><strong>{item.title || item.filename}</strong><small>{item.filename}</small></span><span className="source-arrow">↗</span>
+          </a>
+          <button className="download-small" onClick={() => void downloadAttachmentSelected(item)} disabled={busy}>Download…</button>
+        </div>)}
       </section>}
 
       <section className="action-panel">
