@@ -171,7 +171,6 @@ export async function analyzeQuiz(input: {
     screenshotsCaptured: input.images.length,
     suggestions,
     sources: uniqueSources,
-    screenshotsCaptured: input.images.length,
     warnings
   };
 }
