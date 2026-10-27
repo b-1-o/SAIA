@@ -142,3 +142,6 @@ code { color: #dfc2d7; font-family: ui-monospace, monospace; font-size: 9px; ove
 .attachment-row .source-item { border-bottom: 0; }
 .download-small { width: 100%; border: 1px solid #5c4056; color: #e3cddd; background: #251927; padding: 7px 9px; border-radius: 8px; font-size: 9px; font-weight: 700; text-align: center; }
 .download-small:hover:not(:disabled) { border-color: rgba(255,177,215,.42); color: #ffb4d6; background: #38243a; }
+
+.batch-navigation { display: flex; gap: 8px; margin-top: 12px; }
+.batch-navigation button { flex: 1; min-width: 0; }
