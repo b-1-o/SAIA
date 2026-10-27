@@ -46,18 +46,25 @@
     for (const anchor of links) {
       const href = absoluteUrl(anchor.getAttribute("href"));
       if (!href || seen.has(href)) continue;
+      const parsedUrl = new URL(href);
+      const host = parsedUrl.hostname.toLowerCase();
+      const isLmsHost = host === "lms.lausd.net" || host.endsWith(".lausd.net") ||
+        host === "schoology.com" || host.endsWith(".schoology.com");
+      if (!isLmsHost) continue;
       seen.add(href);
       const label = clean(anchor.innerText || anchor.getAttribute("aria-label") || anchor.title || anchor.querySelector("img")?.alt, 260);
-      const path = new URL(href).pathname;
+      const path = parsedUrl.pathname;
       const parentText = clean(anchor.closest("li,article,[role=article],[class*=card],[class*=assignment],[class*=course],tr")?.innerText || anchor.parentElement?.innerText, 650);
-      const haystack = (label + " " + href + " " + parentText).toLowerCase();
+      const identityText = (label + " " + path).toLowerCase();
       const statusText = parentText.toLowerCase();
       let status = "unknown";
       if (/missing|not submitted|not turned in|incomplete|overdue|not complete/.test(statusText)) status = "incomplete";
       else if (/submitted|completed|complete|graded|turned in|done/.test(statusText)) status = "possibly-complete";
-      if (taskWords.test(haystack) || attachmentExtensions.test(href)) {
+      const taskPath = /\/(assignment|assessment|quiz|test|exam|discussion)(\/|$)/i.test(path);
+      const navigationLabel = /^(skip to content|terms of use|privacy policy|help|settings|grades|messages|logout|log out)$/i.test(label);
+      if (!navigationLabel && (taskPath || (taskWords.test(identityText) && !/terms of use|privacy policy|skip to content/i.test(label)) || attachmentExtensions.test(href))) {
         assignments.push({ title: label || path.split("/").filter(Boolean).pop() || "Untitled item", url: href, context: parentText, status });
-      } else if (courseWords.test(haystack) && !/\/login|\/logout|\/settings|\/help/.test(path)) {
+      } else if (!navigationLabel && (/(^|\/)course(s)?(\/|$)/i.test(path) || courseWords.test(identityText)) && !/\/login|\/logout|\/settings|\/help/i.test(path)) {
         courses.push({ title: label || path, url: href });
       }
     }
