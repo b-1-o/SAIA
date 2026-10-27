@@ -65,17 +65,29 @@
   }
 
   function collectQuestions() {
-    const selectors = [
-      "[data-question-id]", "[data-testid*=question]", ".question", ".quiz-question",
-      ".assessment-question", "fieldset", "[role=group]", ".question-wrapper"
+    // Prefer LMS question-card selectors before generic fieldsets/group containers.
+    // Combining every selector at once can select a parent quiz wrapper and hide all nested questions.
+    const preferredSelectors = [
+      "[data-question-id]", "[data-testid*=question]", ".quiz-question",
+      ".assessment-question", ".question-wrapper", ".question"
     ];
-    const candidates = Array.from(document.querySelectorAll(selectors.join(","))).filter(visible);
+    let candidates = [];
+    for (const selector of preferredSelectors) {
+      const matches = Array.from(document.querySelectorAll(selector)).filter(visible);
+      if (matches.length > 0) {
+        candidates = matches;
+        break;
+      }
+    }
+    if (!candidates.length) {
+      candidates = Array.from(document.querySelectorAll("fieldset, [role=group]")).filter(visible);
+    }
+
     const chosen = [];
     for (const node of candidates) {
       const text = clean(node.innerText, 5000);
       if (text.length < 8) continue;
-      // Avoid returning both a question card and every nested field/role group.
-      if (chosen.some((item) => item.element.contains(node) || node.contains(item.element))) continue;
+      if (chosen.some((entry) => entry.element.contains(node) || node.contains(entry.element))) continue;
       const options = Array.from(node.querySelectorAll("label, [role=radio], [role=checkbox], input[type=radio], input[type=checkbox], select option"))
         .map((option) => clean(option.innerText || option.getAttribute("aria-label") || option.value || option.parentElement?.innerText, 500))
         .filter((value) => value.length > 0);
@@ -90,7 +102,8 @@
       chosen.push({ element: node, item: { index: chosen.length + 1, text, options: [...new Set(options)].slice(0, 40), images, inputs } });
     }
     if (chosen.length > 0) return chosen.map((entry) => entry.item);
-    // Schoology versions often don't expose stable question classes; fall back to visible fields plus page text.
+
+    // Fallback for pages without stable question containers: group answer controls by radio name/fieldset.
     const fields = Array.from(document.querySelectorAll("input[type=radio],input[type=checkbox],textarea,input:not([type]),select")).filter(visible);
     if (fields.length) {
       const groups = new Map();
