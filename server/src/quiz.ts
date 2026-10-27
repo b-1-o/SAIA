@@ -45,6 +45,7 @@ export async function analyzeQuiz(input: {
   pageUrl?: string;
   pageText: string;
   questions: QuizQuestionInput[];
+  totalQuestions?: number;
   images: string[];
   useSearch: boolean;
 }): Promise<{
@@ -68,8 +69,9 @@ export async function analyzeQuiz(input: {
   if (!questions.length) {
     throw new Error("No question groups were detected. Scroll to a question and use Analyze visible page, or check that the LMS question text is selectable.");
   }
-  if (input.questions.length > questions.length) {
-    warnings.push("For responsiveness, this batch reviews only the first 6 detected question groups. Use Analyze visible page for focused review of another section.");
+  const totalQuestions = input.totalQuestions ?? input.questions.length;
+  if (totalQuestions > questions.length) {
+    warnings.push("This batch reviewed questions " + questions[0].index + "–" + questions[questions.length - 1].index + " of " + totalQuestions + ". Use Next 6 to continue.");
   }
   const coverageWarning = input.pageText.match(/Visual coverage warning:[^\n]*/i);
   if (coverageWarning) warnings.push(coverageWarning[0]);
@@ -188,7 +190,7 @@ export async function analyzeQuiz(input: {
     kind: route.kind,
     model: resolved.model,
     fallbackUsed: resolved.fallbackUsed,
-    questionsFound: input.questions.length,
+    questionsFound: totalQuestions,
     analyzedQuestions: suggestions.length,
     screenshotsCaptured: needsVisual ? Math.min(1, input.images.length) : 0,
     suggestions,
