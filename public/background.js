@@ -98,7 +98,6 @@ async function scanCourses(startTab) {
   }
 
   const scanned = [];
-  // Keep the number of simultaneous temporary tabs low on memory-constrained computers.
   for (let i = 0; i < uniqueCourses.length; i += 3) {
     const batch = uniqueCourses.slice(i, i + 3);
     const results = await Promise.all(batch.map(scanCourseUrl));
@@ -125,29 +124,69 @@ async function scanCourses(startTab) {
     scanUrl: initial.url,
     warnings: uniqueCourses.length === 0
       ? ["No course links were found on this page. Open the LMS courses/dashboard page and try again."]
-      : ["This is a best-effort scan of links visible in the LMS and up to 20 discovered course pages. Items with unknown status need manual checking."]
+      : ["Best-effort scan of LMS links and up to 20 discovered course pages. Unknown status means the LMS did not expose a reliable completion label."]
   };
 }
 
-async function captureVisibleScreenshot(tab) {
-  try { return await chrome.tabs.captureVisibleTab(tab.windowId, { format: "jpeg", quality: 72 }); }
-  catch (_) { return null; }
+async function attachDraftToCurrentSubmission(tab, draft) {
+  if (!isSupportedPage(tab.url)) throw new Error("Open the relevant Schoology assignment page first.");
+  if (!draft || typeof draft.filename !== "string" || typeof draft.base64 !== "string") {
+    throw new Error("No prepared review draft was supplied.");
+  }
+  if (draft.base64.length > 11500000 || !/^[A-Za-z0-9+/]+={0,2}$/.test(draft.base64)) {
+    throw new Error("The draft data is invalid or too large.");
+  }
+  const results = await chrome.scripting.executeScript({
+    target: { tabId: tab.id, allFrames: true },
+    args: [{ filename: draft.filename.slice(0, 160), mimeType: String(draft.mimeType || "application/vnd.openxmlformats-officedocument.wordprocessingml.document"), base64: draft.base64 }],
+    func: (fileData) => {
+      const inputs = Array.from(document.querySelectorAll('input[type="file"]:not(:disabled)'));
+      if (!inputs.length) return { ok: false, reason: "No file upload control was found in this frame." };
+      if (inputs.length > 1) {
+        const visible = inputs.filter((input) => {
+          const rect = input.getBoundingClientRect();
+          return rect.width > 0 && rect.height > 0;
+        });
+        if (visible.length !== 1) return { ok: false, reason: "Multiple upload controls were found. Select the file manually to avoid attaching it to the wrong field." };
+        inputs.splice(0, inputs.length, visible[0]);
+      }
+      const binary = atob(fileData.base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+      const file = new File([bytes], fileData.filename, { type: fileData.mimeType });
+      const transfer = new DataTransfer();
+      transfer.items.add(file);
+      inputs[0].files = transfer.files;
+      inputs[0].dispatchEvent(new Event("input", { bubbles: true }));
+      inputs[0].dispatchEvent(new Event("change", { bubbles: true }));
+      return { ok: true, filename: file.name, inputCount: inputs.length, note: "File attached in the page. Review the assignment and use its normal Submit button yourself." };
+    }
+  });
+  const success = results.map((result) => result.result).find((result) => result?.ok);
+  if (success) return success;
+  const reason = results.map((result) => result.result?.reason).find(Boolean);
+  throw new Error(reason || "Could not attach the file. Use the assignment's normal file picker.");
 }
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (!message || !["SAIA_ANALYZE_CURRENT", "SAIA_SCAN_COURSES", "SAIA_ANALYZE_QUIZ", "SAIA_LIST_ATTACHMENTS"].includes(message.type)) return;
+  const supportedActions = ["SAIA_ANALYZE_CURRENT", "SAIA_SCAN_COURSES", "SAIA_ANALYZE_QUIZ", "SAIA_LIST_ATTACHMENTS", "SAIA_ATTACH_DRAFT"];
+  if (!message || !supportedActions.includes(message.type)) return;
 
   (async () => {
     const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
     if (!tab || typeof tab.id !== "number" || typeof tab.windowId !== "number") throw new Error("No active tab was found.");
-    if (!isSupportedPage(tab.url)) throw new Error("Open a page in LAUSD LMS / Schoology first.");
 
-    if (message.type === "SAIA_SCAN_COURSES") {
-      const scan = await scanCourses(tab);
-      sendResponse({ ok: true, data: scan });
+    if (message.type === "SAIA_ATTACH_DRAFT") {
+      const attached = await attachDraftToCurrentSubmission(tab, message.draft);
+      sendResponse({ ok: true, data: attached });
       return;
     }
 
+    if (!isSupportedPage(tab.url)) throw new Error("Open a page in LAUSD LMS / Schoology first.");
+    if (message.type === "SAIA_SCAN_COURSES") {
+      sendResponse({ ok: true, data: await scanCourses(tab) });
+      return;
+    }
     if (message.type === "SAIA_LIST_ATTACHMENTS") {
       const result = await askContentScript(tab.id, "SAIA_COLLECT_ATTACHMENTS");
       sendResponse({ ok: true, data: result });
@@ -156,8 +195,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
     const settings = await chrome.storage.local.get({ apiBaseUrl: DEFAULT_API, useSearch: true });
     const page = await getPageSnapshot(tab);
-    const screenshot = await captureVisibleScreenshot(tab);
+    const screenshot = await (async () => {
+      try { return await chrome.tabs.captureVisibleTab(tab.windowId, { format: "jpeg", quality: 72 }); }
+      catch (_) { return null; }
+    })();
     let body;
+    let endpoint = "/api/analyze";
 
     if (message.type === "SAIA_ANALYZE_QUIZ") {
       const questionData = await askContentScript(tab.id, "SAIA_COLLECT_QUESTIONS");
@@ -169,22 +212,17 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         images: screenshot ? [screenshot] : [],
         useSearch: Boolean(settings.useSearch)
       };
+      endpoint = "/api/analyze-quiz";
     } else {
       body = {
-        title: page.title,
-        pageUrl: page.url,
-        text: page.text,
+        title: page.title, pageUrl: page.url, text: page.text,
         images: screenshot ? [screenshot] : [],
-        useSearch: Boolean(settings.useSearch),
-        taskType: "auto"
+        useSearch: Boolean(settings.useSearch), taskType: "auto"
       };
     }
 
-    const endpoint = message.type === "SAIA_ANALYZE_QUIZ" ? "/api/analyze-quiz" : "/api/analyze";
     const response = await fetch(String(settings.apiBaseUrl || DEFAULT_API) + endpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body)
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body)
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(payload.error || "Local analysis failed with status " + response.status + ".");
