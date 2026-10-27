@@ -32,7 +32,10 @@ type FileDraft = {
   draftBase64: string; draftFilename: string; model: string; warnings: string[];
 };
 type Attachment = { title: string; url: string; filename: string };
+type HistoryKind = "quiz" | "analysis" | "scan" | "attachments";
+type HistoryRecord = { id: string; kind: HistoryKind; title: string; savedAt: number; pageUrl?: string; data: unknown };
 
+const HISTORY_LIMIT = 40;
 const API = "http://127.0.0.1:41732";
 
 function extensionMessage<T>(type: string, payload: Record<string, unknown> = {}): Promise<{ ok: boolean; data?: T; error?: string }> {
@@ -82,6 +85,8 @@ export default function App() {
   const [useSearch, setUseSearch] = useState(true);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [fileDraft, setFileDraft] = useState<FileDraft | null>(null);
+  const [activeView, setActiveView] = useState<"tools" | "history">("tools");
+  const [history, setHistory] = useState<HistoryRecord[]>([]);
 
   useEffect(() => {
     if (!busy) {
@@ -109,8 +114,9 @@ export default function App() {
   useEffect(() => {
     void refreshHealth();
     if (typeof chrome !== "undefined" && chrome.storage?.local) {
-      chrome.storage.local.get({ useSearch: true, saiaAssignments: [], saiaScanMeta: null }, (value: any) => {
+      chrome.storage.local.get({ useSearch: true, saiaAssignments: [], saiaScanMeta: null, saiaHistory: [] }, (value: any) => {
         setUseSearch(Boolean(value.useSearch));
+        setHistory(Array.isArray(value.saiaHistory) ? value.saiaHistory : []);
         if (Array.isArray(value.saiaAssignments) && value.saiaAssignments.length) {
           setScan({
             assignments: value.saiaAssignments,
@@ -126,6 +132,53 @@ export default function App() {
   async function toggleSearch(enabled: boolean) {
     setUseSearch(enabled);
     if (typeof chrome !== "undefined" && chrome.storage?.local) chrome.storage.local.set({ useSearch: enabled });
+  }
+
+  function appendHistory(kind: HistoryKind, title: string, data: unknown, pageUrl?: string): Promise<void> {
+    return new Promise((resolve) => {
+      const storage = typeof chrome !== "undefined" ? chrome.storage?.local : null;
+      if (!storage) {
+        resolve();
+        return;
+      }
+      storage.get({ saiaHistory: [] }, (value: any) => {
+        const previous = Array.isArray(value.saiaHistory) ? value.saiaHistory as HistoryRecord[] : [];
+        const entry: HistoryRecord = {
+          id: Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 9),
+          kind,
+          title,
+          savedAt: Date.now(),
+          pageUrl,
+          data
+        };
+        const next = [entry, ...previous].slice(0, HISTORY_LIMIT);
+        storage.set({ saiaHistory: next }, () => {
+          setHistory(next);
+          resolve();
+        });
+      });
+    });
+  }
+
+  function exportHistory() {
+    const blob = new Blob([JSON.stringify(history, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "saia-history.json";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  function clearHistory() {
+    if (!window.confirm("Clear all saved SAIA history from this browser? This cannot be undone.")) return;
+    if (typeof chrome !== "undefined" && chrome.storage?.local) {
+      chrome.storage.local.set({ saiaHistory: [] }, () => setHistory([]));
+    } else {
+      setHistory([]);
+    }
   }
 
   async function runExtensionAction<T>(type: string, label: string, payload: Record<string, unknown> = {}): Promise<T | null> {
@@ -151,7 +204,10 @@ export default function App() {
     setAnalysis(null);
     setQuiz(null);
     const result = await runExtensionAction<Analysis>("SAIA_ANALYZE_CURRENT", "Analyzing page…");
-    if (result) setAnalysis(result);
+    if (result) {
+      setAnalysis(result);
+      void appendHistory("analysis", "Page analysis · " + result.kind, result);
+    }
   }
 
   async function analyzeWholeQuiz(startIndex = 0) {
@@ -159,7 +215,12 @@ export default function App() {
     setQuiz(null);
     setQuizBatchStart(startIndex);
     const result = await runExtensionAction<QuizResult>("SAIA_ANALYZE_QUIZ", "Analyzing quiz batch…", { startIndex });
-    if (result) setQuiz(result);
+    if (result) {
+      setQuiz(result);
+      const firstIndex = result.suggestions[0]?.index ?? startIndex + 1;
+      const lastIndex = result.suggestions[result.suggestions.length - 1]?.index ?? firstIndex;
+      void appendHistory("quiz", "Quiz review · " + result.title + " · Q" + firstIndex + "–" + lastIndex, result);
+    }
   }
 
   async function scanCourses() {
@@ -167,6 +228,7 @@ export default function App() {
     if (result) {
       setScan(result);
       const incomplete = result.assignments.filter((item) => item.status === "incomplete").length;
+      void appendHistory("scan", "Assignment scan · " + result.assignments.length + " task links", result, result.scanUrl);
       setNotice("Scan finished: " + result.assignments.length + " task links found; " + incomplete + " marked incomplete. Unknown statuses need checking.");
     }
   }
@@ -175,6 +237,7 @@ export default function App() {
     const result = await runExtensionAction<{ attachments: Attachment[] }>("SAIA_LIST_ATTACHMENTS", "Finding file attachments…");
     if (result) {
       setAttachments(result.attachments || []);
+      void appendHistory("attachments", "Attachment search · " + (result.attachments || []).length + " file(s)", result.attachments || []);
       if (!(result.attachments || []).length) setNotice("No direct PDF/DOCX/XLSX-style file links were found on this page.");
     }
   }
@@ -290,6 +353,12 @@ export default function App() {
         <button className="icon-button" onClick={() => void refreshHealth()} aria-label="Refresh status" title="Refresh status">↻</button>
       </header>
 
+      <nav className="view-tabs" aria-label="SAIA pages">
+        <button className={"view-tab " + (activeView === "tools" ? "active" : "")} onClick={() => setActiveView("tools")}>Coursework tools</button>
+        <button className={"view-tab " + (activeView === "history" ? "active" : "")} onClick={() => setActiveView("history")}>Saved results ({history.length})</button>
+      </nav>
+
+      {activeView === "tools" ? <>
       <section className="status-card">
         <div className="status-row">
           <span className={"status-dot " + (health?.ollamaAvailable ? "on" : "")} />
@@ -312,6 +381,7 @@ export default function App() {
           <span className="custom-toggle" />
           <span className="toggle-text"><strong>Use web search when useful</strong><small>{health?.tavilyConfigured ? "Tavily configured." : "Optional — add a Tavily key to .env."}</small></span>
         </label>
+        {!health?.tavilyConfigured && <div className="setup-note">Get a key from the <a href="https://app.tavily.com/home" target="_blank" rel="noreferrer">Tavily dashboard</a>. Add <code>TAVILY_API_KEY=tvly-...</code> to <code>~/SAIA/.env</code>, then restart <code>npm run dev</code>. Keep the key private and out of GitHub.</div>}
         <button className="primary-button" onClick={() => void scanCourses()} disabled={busy}>
           {busy && busyLabel.startsWith("Scanning") ? <><span className="spinner" /> {busyLabel}</> : <><span>◎</span> Scan courses and assignments</>}
         </button>
@@ -428,6 +498,79 @@ export default function App() {
       </section>
 
       <footer className="footer"><span>SAIA · v0.2.0</span><span>Local-first by design</span></footer>
+      </> : (
+        <section className="result-panel history-page">
+          <div className="section-title">
+            <div><h2>Saved results</h2><p>Searches and analyses saved locally</p></div>
+            <span className="count-pill">{history.length} / {HISTORY_LIMIT}</span>
+          </div>
+          <p className="history-intro">Results remain available after the popup closes or the browser is restarted. The newest {HISTORY_LIMIT} records are kept on this device only.</p>
+          <div className="history-actions">
+            <button className="secondary-button" onClick={exportHistory} disabled={history.length === 0}>Export JSON</button>
+            <button className="secondary-button" onClick={clearHistory} disabled={history.length === 0}>Clear history</button>
+          </div>
+          {history.length === 0 ? <div className="history-empty">No saved results yet.<br />Run a course scan, quiz review, page analysis or attachment search from Coursework tools.</div> : history.map((record) => (
+            <details className="history-entry" key={record.id}>
+              <summary>
+                <div className="history-entry-meta">
+                  <strong>{record.title}</strong>
+                  <small>{new Date(record.savedAt).toLocaleString()} · {record.kind.toUpperCase()}{record.pageUrl ? " · " + record.pageUrl : ""}</small>
+                </div>
+              </summary>
+              <div className="history-entry-content">
+                {record.kind === "quiz" && (() => {
+                  const saved = record.data as QuizResult;
+                  return <>
+                    <p className="microcopy">{saved.analyzedQuestions} questions · {saved.kind.toUpperCase()} · {saved.model}</p>
+                    {saved.suggestions.map((item) => <article className="question-result" key={item.index}>
+                      <div className="question-top"><span className="question-number">Q{item.index}</span><span className="confidence-mini">{Math.round(item.confidence * 100)}% model estimate</span></div>
+                      <p className="question-prompt">{item.question}</p>
+                      {item.options.length > 0 && <div className="option-list">{item.options.map((option, index) => <div key={index}><span>{String.fromCharCode(65 + index)}</span>{option}</div>)}</div>}
+                      {item.suggestedResponse && <div className="answer-box"><span className="label">SUGGESTED RESPONSE</span><p>{item.suggestedResponse}</p></div>}
+                      {item.explanation && <div className="explanation-box"><span className="label">WHY / EVIDENCE</span><p>{item.explanation}</p></div>}
+                      {item.needsReview && <small className="error-inline">Review this question carefully.</small>}
+                    </article>)}
+                    {saved.warnings.map((warning, index) => <div className="warning-box" key={index}>{warning}</div>)}
+                    {saved.sources?.length > 0 && <div className="sources-section"><span className="label">FACTUAL SOURCES</span>{saved.sources.map((source, index) => <a className="source-item" href={source.url} target="_blank" rel="noreferrer" key={source.url + index}><span className="source-index">{String(index + 1).padStart(2, "0")}</span><span><strong>{source.title || source.url}</strong><small>{source.content}</small></span><span className="source-arrow">↗</span></a>)}</div>}
+                  </>;
+                })()}
+                {record.kind === "analysis" && (() => {
+                  const saved = record.data as Analysis;
+                  return <>
+                    <p className="microcopy">{saved.kind.toUpperCase()} · {saved.model}{saved.fallbackUsed ? " · fallback model" : ""}</p>
+                    {saved.summary && <p className="summary-text">{saved.summary}</p>}
+                    {saved.suggestedAnswer && <div className="answer-box"><span className="label">SUGGESTED RESPONSE</span><p>{saved.suggestedAnswer}</p></div>}
+                    {saved.explanation && <div className="explanation-box"><span className="label">REASONING</span><p>{saved.explanation}</p></div>}
+                    {saved.sources?.length > 0 && <div className="sources-section"><span className="label">SOURCES</span>{saved.sources.map((source, index) => <a className="source-item" href={source.url} target="_blank" rel="noreferrer" key={source.url + index}><span className="source-index">{String(index + 1).padStart(2, "0")}</span><span><strong>{source.title || source.url}</strong><small>{source.content}</small></span><span className="source-arrow">↗</span></a>)}</div>}
+                    {saved.warnings.map((warning, index) => <div className="warning-box" key={index}>{warning}</div>)}
+                  </>;
+                })()}
+                {record.kind === "scan" && (() => {
+                  const saved = record.data as ScanResult;
+                  return <>
+                    <p className="microcopy">{saved.coursesScanned} course pages visited · {saved.assignments.length} task links. Incomplete status counts only visible labels.</p>
+                    {saved.warnings.map((warning, index) => <div className="warning-box" key={index}>{warning}</div>)}
+                    <div className="assignment-list">{saved.assignments.map((item, index) => <div className="assignment-item" key={(item.url || item.title) + index}>
+                      <div className="assignment-item-main">
+                        <span className={"task-status " + item.status}>{item.status === "incomplete" ? "INCOMPLETE" : item.status === "possibly-complete" ? "MAYBE DONE" : "CHECK"}</span>
+                        <a href={item.url} target="_blank" rel="noreferrer"><strong>{item.title || "Untitled task"}</strong></a>
+                        <small>{item.course || "Course not identified"}{item.context ? " · " + item.context.slice(0, 150) : ""}</small>
+                        {item.scanError && <small className="error-inline">{item.scanError}</small>}
+                      </div>
+                    </div>)}</div>
+                  </>;
+                })()}
+                {record.kind === "attachments" && (() => {
+                  const saved = record.data as Attachment[];
+                  return saved.length ? saved.map((item, index) => <a className="source-item" href={item.url} target="_blank" rel="noreferrer" key={item.url + index}>
+                    <span className="source-index">FILE</span><span><strong>{item.title || item.filename}</strong><small>{item.filename}</small></span><span className="source-arrow">↗</span>
+                  </a>) : <p className="history-intro">No direct downloadable file links were found during this search.</p>;
+                })()}
+              </div>
+            </details>
+          ))}
+        </section>
+      )}
     </main>
   );
 }
