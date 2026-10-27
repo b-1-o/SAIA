@@ -49,11 +49,18 @@ function systemPrompt(kind: string): string {
   ].join(" ");
 }
 
+const VISUAL_REFERENCE_PATTERN = /\\b(?:look at|refer to|use|based on|according to|shown in|as shown in|in|from)\\s+(?:the\\s+)?(?:diagram|graph|chart|plot|coordinate plane|figure|picture|image)\\b|\\b(?:diagram|graph|chart|plot|coordinate plane)\\s+(?:below|above|shown|provided|pictured)\\b|\\b(?:read|interpret|identify|describe)\\s+(?:the\\s+)?(?:graph|diagram|chart|plot|image|figure)\\b/i;
+
+export function shouldUseVisualAnalysis(taskType: string, title: string, text: string): boolean {
+  if (taskType === "visual") return true;
+  return VISUAL_REFERENCE_PATTERN.test(title + "\\n" + text);
+}
+
 export async function analyze(input: AnalyzeInput): Promise<AnalysisResponse> {
   const startedAt = Date.now();
   const warnings: string[] = [];
-  const visualPattern = /\b(diagram|graph|chart|figure|picture|image|plot|coordinate plane|shown below|shown above|in the diagram|look at the graph|based on the graph)\b/i;
-  const needsVisual = input.taskType === "visual" || visualPattern.test(input.title + "\n" + input.text) || input.text.trim().length < 800;
+  // A screenshot is not enough reason to trigger vision: LMS chrome often contains generic image wording.
+  const needsVisual = shouldUseVisualAnalysis(input.taskType, input.title, input.text);
   const imagesForAnalysis = needsVisual ? input.images.slice(0, 1) : [];
 
   // Do not run Tesseract on live LMS screenshots: it duplicates visual parsing and can block on loading OCR assets.
@@ -95,7 +102,7 @@ export async function analyze(input: AnalyzeInput): Promise<AnalysisResponse> {
     "Page title: " + (input.title || "(not available)").slice(0, 200),
     "Page URL: " + (input.pageUrl || "(not available)"),
     "Task classification: " + route.kind,
-    "Extracted page text:\n" + (input.text || "(no page text captured)").slice(0, 8000),
+    "Extracted page text:\n" + (input.text || "(no page text captured)").slice(0, 5000),
     "Screenshot context:\n" + (needsVisual ? "(attached for direct visual reading; no separate OCR pass)" : "(not attached; text-first analysis)"),
     "Optional web search excerpts:\n" + sourceContext,
     "Give a concise explanation. Do not repeat the entire page; focus on the visible task and mention uncertainty."
@@ -107,7 +114,7 @@ export async function analyze(input: AnalyzeInput): Promise<AnalysisResponse> {
     system: systemPrompt(route.kind),
     prompt,
     images: imagesForAnalysis,
-    maxTokens: 512
+    maxTokens: 320
   });
   console.info("[SAIA page] Finished in " + Math.round((Date.now() - startedAt) / 1000) + "s.");
   const parsed = safeJson(modelContent);
