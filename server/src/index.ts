@@ -51,7 +51,7 @@ const QuizSchema = z.object({
       label: z.string().max(300)
     })).max(30).default([])
   })).max(100),
-  images: z.array(ImageSchema).max(1).default([]),
+  images: z.array(ImageSchema).max(6).default([]),
   useSearch: z.boolean().default(false)
 });
 
