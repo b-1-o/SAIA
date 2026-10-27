@@ -40,11 +40,12 @@ export function shouldSearch(text: string, kind: TaskKind): boolean {
 export function buildSearchQuery(text: string): string {
   return text
     .replace(/[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/g, " ")
-    .replace(/\b(?:student\s*)?(?:id|number)\s*[:#-]?\s*[A-Za-z0-9-]+\b/gi, " ")
-    .replace(/\b(?:name|email|phone|student)\s*:\s*[^\n,;]+/gi, " ")
+    .replace(/\b(?:student[ \t]*)?(?:id|number)[ \t]*[:#-]?[ \t]*[A-Za-z0-9-]+\b/gi, " ")
+    .replace(/\b(?:name|email|phone|student)[ \t]*:[ \t]*[^\n,;]*/gi, " ")
     .replace(/\+?\d[\d\s().-]{7,}\d/g, " ")
     .replace(/https?:\/\/\S+/gi, " ")
-    .replace(/\s+/g, " ")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n+/g, " ")
     .trim()
     .slice(0, 650);
 }
