@@ -172,6 +172,23 @@ async function captureQuizScreenshots(tab, maxScreenshots = 6) {
   return { images: screenshots, capturedViewports: screenshots.length, totalViewports, partial: totalViewports > screenshots.length };
 }
 
+function downloadLmsAttachment(url, filename) {
+  return new Promise((resolve, reject) => {
+    let parsed;
+    try { parsed = new URL(url); } catch { reject(new Error("Attachment URL is invalid.")); return; }
+    if (parsed.protocol !== "https:" || !isSupportedPage(parsed.href)) {
+      reject(new Error("For safety, SAIA only downloads HTTPS files hosted by the LAUSD LMS / Schoology domains."));
+      return;
+    }
+    chrome.downloads.download({ url: parsed.href, filename: String(filename || parsed.pathname.split("/").pop() || "schoology-file").slice(0, 180), saveAs: true }, (downloadId) => {
+      const error = chrome.runtime.lastError;
+      if (error) reject(new Error(error.message || "Browser download failed."));
+      else if (typeof downloadId !== "number") reject(new Error("Download was cancelled or did not start."));
+      else resolve({ downloadId, filename: String(filename || parsed.pathname.split("/").pop() || "schoology-file") });
+    });
+  });
+}
+
 async function attachDraftToCurrentSubmission(tab, draft) {
   if (!isSupportedPage(tab.url)) throw new Error("Open the relevant Schoology assignment page first.");
   if (!draft || typeof draft.filename !== "string" || typeof draft.base64 !== "string") {
@@ -213,7 +230,7 @@ async function attachDraftToCurrentSubmission(tab, draft) {
 }
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  const supportedActions = ["SAIA_ANALYZE_CURRENT", "SAIA_SCAN_COURSES", "SAIA_ANALYZE_QUIZ", "SAIA_LIST_ATTACHMENTS", "SAIA_ATTACH_DRAFT"];
+  const supportedActions = ["SAIA_ANALYZE_CURRENT", "SAIA_SCAN_COURSES", "SAIA_ANALYZE_QUIZ", "SAIA_LIST_ATTACHMENTS", "SAIA_ATTACH_DRAFT", "SAIA_DOWNLOAD_ATTACHMENT"];
   if (!message || !supportedActions.includes(message.type)) return;
 
   (async () => {
@@ -227,6 +244,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     }
 
     if (!isSupportedPage(tab.url)) throw new Error("Open a page in LAUSD LMS / Schoology first.");
+    if (message.type === "SAIA_DOWNLOAD_ATTACHMENT") {
+      const downloaded = await downloadLmsAttachment(String(message.url || ""), String(message.filename || ""));
+      sendResponse({ ok: true, data: downloaded });
+      return;
+    }
     if (message.type === "SAIA_SCAN_COURSES") {
       sendResponse({ ok: true, data: await scanCourses(tab) });
       return;
