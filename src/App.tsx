@@ -187,14 +187,13 @@ export default function App() {
         reader.onerror = () => reject(new Error("Could not read file."));
         reader.readAsDataURL(selectedFile);
       });
-      const fileBase64 = dataUrl.split(",")[1] || "";
       const response = await fetch(API + "/api/files/prepare", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           filename: selectedFile.name,
           mimeType: selectedFile.type || "application/octet-stream",
-          fileBase64
+          fileBase64: dataUrl.split(",")[1] || ""
         })
       });
       const payload = await response.json();
@@ -208,18 +207,6 @@ export default function App() {
       setBusyLabel("");
       void refreshHealth();
     }
-  }
-
-  async function attachDraft() {
-    if (!fileDraft) return;
-    const accepted = window.confirm(
-      "Attach " + fileDraft.draftFilename + " to the file input on the currently active Schoology page?\n\nThis does not submit the assignment. Review it and use Schoology's own Submit button only if it is correct."
-    );
-    if (!accepted) return;
-    const result = await runExtensionAction<{ filename: string; note: string }>("SAIA_ATTACH_DRAFT", "Attaching reviewed draft…");
-    // The payload must carry the document to the service worker.
-    // Use a direct message here so the large but bounded base64 data accompanies the action.
-    if (result) setNotice(result.note || ("Attached " + result.filename + ". The assignment has not been submitted."));
   }
 
   async function attachDraftWithPayload() {
@@ -266,10 +253,7 @@ export default function App() {
     <main className="app-shell">
       <header className="topbar">
         <div className="brand-mark" aria-hidden="true">S</div>
-        <div className="brand-copy">
-          <div className="eyebrow">LOCAL STUDY SYSTEM</div>
-          <h1>SAIA <span>assistant</span></h1>
-        </div>
+        <div className="brand-copy"><div className="eyebrow">LOCAL STUDY SYSTEM</div><h1>SAIA <span>assistant</span></h1></div>
         <button className="icon-button" onClick={() => void refreshHealth()} aria-label="Refresh status" title="Refresh status">↻</button>
       </header>
 
@@ -289,15 +273,11 @@ export default function App() {
       </section>
 
       <section className="action-panel">
-        <div className="section-title">
-          <div><h2>Coursework tools</h2><p>Run from an open LAUSD LMS / Schoology page.</p></div>
-          <span className="privacy-pill"><span /> LOCAL</span>
-        </div>
+        <div className="section-title"><div><h2>Coursework tools</h2><p>Run from an open LAUSD LMS / Schoology page.</p></div><span className="privacy-pill"><span /> LOCAL</span></div>
         <label className="toggle-row">
           <input type="checkbox" checked={useSearch} onChange={(event) => void toggleSearch(event.target.checked)} />
           <span className="custom-toggle" />
-          <span className="toggle-text"><strong>Use web search when useful</strong>
-            <small>{health?.tavilyConfigured ? "Tavily configured." : "Optional — add a Tavily key to .env."}</small></span>
+          <span className="toggle-text"><strong>Use web search when useful</strong><small>{health?.tavilyConfigured ? "Tavily configured." : "Optional — add a Tavily key to .env."}</small></span>
         </label>
         <button className="primary-button" onClick={() => void scanCourses()} disabled={busy || !health?.ollamaAvailable}>
           {busy && busyLabel.startsWith("Scanning") ? <><span className="spinner" /> {busyLabel}</> : <><span>◎</span> Scan courses and assignments</>}
@@ -306,11 +286,9 @@ export default function App() {
           {busy && busyLabel.startsWith("Collecting") ? <><span className="spinner" /> {busyLabel}</> : <><span>▤</span> Analyze whole quiz</>}
         </button>
         <button className="secondary-button" onClick={() => void analyzePage()} disabled={busy || !health?.ollamaAvailable}>
-          {busy && busyLabel.startsWith("Analyzing") ? <><span className="spinner" /> {busyLabel}</> : <><span>✦</span> Analyze visible page}
+          {busy && busyLabel.startsWith("Analyzing") ? <><span className="spinner" /> {busyLabel}</> : <><span>✦</span> Analyze visible page</>}
         </button>
-        <button className="text-button" onClick={() => void listAttachments()} disabled={busy}>
-          <span>↳</span> Find downloadable attachments
-        </button>
+        <button className="text-button" onClick={() => void listAttachments()} disabled={busy}><span>↳</span> Find downloadable attachments</button>
         <p className="microcopy">SAIA suggests and explains. It does not select quiz options or press Submit for you.</p>
       </section>
 
@@ -318,11 +296,8 @@ export default function App() {
       {notice && <div className="notice-box">{notice}</div>}
 
       {scan && <section className="result-panel">
-        <div className="section-title">
-          <div><h2>Assignment scan</h2><p>{scan.coursesScanned} course pages visited · {scan.assignments.length} task links</p></div>
-          <span className="count-pill">{incompleteCount} incomplete*</span>
-        </div>
-        <p className="microcopy">*Only items with a visible incomplete label count here. Unknown status is not proof that the assignment is missing.</p>
+        <div className="section-title"><div><h2>Assignment scan</h2><p>{scan.coursesScanned} course pages visited · {scan.assignments.length} task links</p></div><span className="count-pill">{incompleteCount} incomplete*</span></div>
+        <p className="microcopy">*Only visible incomplete labels count here. Unknown status is not proof that an assignment is missing.</p>
         {scan.warnings.map((warning, index) => <div className="warning-box" key={index}>{warning}</div>)}
         <div className="assignment-list">
           {scan.assignments.slice(0, 70).map((item, index) => <div className="assignment-item" key={(item.url || item.title) + index}>
@@ -334,14 +309,11 @@ export default function App() {
             </div>
           </div>)}
         </div>
-        {scan.assignments.length > 70 && <p className="microcopy">Showing the first 70 items. The full scan is saved locally in extension storage.</p>}
+        {scan.assignments.length > 70 && <p className="microcopy">Showing first 70 items; the full scan is saved locally.</p>}
       </section>}
 
       {quiz && <section className="result-panel">
-        <div className="result-head">
-          <span className="result-icon">▤</span>
-          <div className="result-heading"><h2>Quiz review</h2><p>{quiz.analyzedQuestions}/{quiz.questionsFound} question groups · {quiz.kind.toUpperCase()} · {quiz.model}</p></div>
-        </div>
+        <div className="result-head"><span className="result-icon">▤</span><div className="result-heading"><h2>Quiz review</h2><p>{quiz.analyzedQuestions}/{quiz.questionsFound} question groups · {quiz.kind.toUpperCase()} · {quiz.model}</p></div></div>
         {quiz.fallbackUsed && <div className="warning-box">The preferred model was not installed; a fallback was used.</div>}
         <div className="review-note">Suggestions are drafts with explanations. Check the original question, image, and course rules before using them.</div>
         {quiz.suggestions.map((item) => <article className="question-result" key={item.index}>
@@ -356,9 +328,7 @@ export default function App() {
       </section>}
 
       {analysis && <section className="result-panel">
-        <div className="result-head">
-          <span className="result-icon">✦</span>
-          <div className="result-heading"><h2>Page analysis</h2><p>{analysis.kind.toUpperCase()} · {analysis.model}{analysis.fallbackUsed ? " · fallback model" : ""}</p></div>
+        <div className="result-head"><span className="result-icon">✦</span><div className="result-heading"><h2>Page analysis</h2><p>{analysis.kind.toUpperCase()} · {analysis.model}{analysis.fallbackUsed ? " · fallback model" : ""}</p></div>
           {confidence !== null && <div className="confidence"><strong>{confidence}%</strong><small>confidence</small></div>}
         </div>
         {analysis.summary && <p className="summary-text">{analysis.summary}</p>}
@@ -383,7 +353,7 @@ export default function App() {
       </section>}
 
       {attachments.length > 0 && <section className="result-panel">
-        <div className="section-title"><div><h2>Downloadable attachments</h2><p>Open the file from Schoology, then select it below to prepare a review draft.</p></div></div>
+        <div className="section-title"><div><h2>Downloadable attachments</h2><p>Open a file from Schoology, then select it below.</p></div></div>
         {attachments.map((item, index) => <a className="source-item" href={item.url} target="_blank" rel="noreferrer" key={item.url + index}>
           <span className="source-index">FILE</span><span><strong>{item.title || item.filename}</strong><small>{item.filename}</small></span><span className="source-arrow">↓</span>
         </a>)}
@@ -397,18 +367,16 @@ export default function App() {
           {busy && busyLabel.startsWith("Reading") ? <><span className="spinner" /> {busyLabel}</> : <><span>▧</span> Prepare review draft</>}
         </button>
         {fileDraft && <div className="file-draft">
-          <div className="draft-ready"><icon-placeholder>✓</icon-placeholder><div><strong>{fileDraft.draftFilename}</strong><small>{fileDraft.sourceType} · {fileDraft.suggestedItems.length} items · {fileDraft.model}</small></div></div>
+          <div className="draft-ready"><span className="draft-check">✓</span><div><strong>{fileDraft.draftFilename}</strong><small>{fileDraft.sourceType} · {fileDraft.suggestedItems.length} items · {fileDraft.model}</small></div></div>
           <p className="microcopy">This is a new review copy, not the original worksheet. Check every suggestion before using it.</p>
           <button className="secondary-button" onClick={() => saveBase64File(fileDraft.draftBase64, fileDraft.draftFilename, "application/vnd.openxmlformats-officedocument.wordprocessingml.document")}>Download prepared DOCX</button>
           <button className="secondary-button" onClick={() => void attachDraftWithPayload()} disabled={busy}>Attach draft to active LMS file field…</button>
           {fileDraft.warnings.map((warning, index) => <div className="warning-box" key={index}>{warning}</div>)}
           <div className="draft-preview">
             {fileDraft.suggestedItems.slice(0, 5).map((item, index) => <div className="draft-item" key={index}>
-              <strong>{index + 1}. {item.question.slice(0, 160)}</strong>
-              <p>{item.suggestedAnswer}</p>
-              {item.explanation && <small>{item.explanation}</small>}
+              <strong>{index + 1}. {item.question.slice(0, 160)}</strong><p>{item.suggestedAnswer}</p>{item.explanation && <small>{item.explanation}</small>}
             </div>)}
-            {fileDraft.suggestedItems.length > 5 && <small>Preview shows 5 items; all detected items are in the downloaded DOCX.</small>}
+            {fileDraft.suggestedItems.length > 5 && <small>Showing 5 items; all detected items are in the downloaded DOCX.</small>}
           </div>
         </div>}
       </section>
