@@ -1,0 +1,8 @@
+node_modules/
+dist/
+dist-api/
+.env
+*.log
+.cache/
+.tesseract-cache/
+.DS_Store
