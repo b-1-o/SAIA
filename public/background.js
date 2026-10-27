@@ -133,22 +133,45 @@ async function captureVisibleScreenshot(tab) {
   catch (_) { return null; }
 }
 
-async function captureQuizScreenshots(tab, maxScreenshots = 6) {
+async function captureQuizScreenshots(tab, maxScreenshots = 6, startIndex = 0) {
   const metricsResult = await chrome.scripting.executeScript({
     target: { tabId: tab.id },
-    func: () => ({
-      scrollY: window.scrollY,
-      scrollHeight: Math.max(document.documentElement.scrollHeight, document.body?.scrollHeight || 0),
-      innerHeight: window.innerHeight
-    })
+    args: [startIndex],
+    func: (questionIndex) => {
+      const selectors = [
+        "[data-question-id]", "[data-testid*=question]", ".quiz-question",
+        ".assessment-question", ".question-wrapper", ".question"
+      ];
+      let candidates = [];
+      for (const selector of selectors) {
+        const matches = Array.from(document.querySelectorAll(selector)).filter((node) => {
+          const style = getComputedStyle(node);
+          const rect = node.getBoundingClientRect();
+          return style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0;
+        });
+        if (matches.length) { candidates = matches; break; }
+      }
+      if (!candidates.length) candidates = Array.from(document.querySelectorAll("fieldset, [role=group]"));
+      const target = candidates[questionIndex];
+      const targetY = target
+        ? Math.max(0, window.scrollY + target.getBoundingClientRect().top - 30)
+        : window.scrollY;
+      return {
+        scrollY: window.scrollY,
+        scrollHeight: Math.max(document.documentElement.scrollHeight, document.body?.scrollHeight || 0),
+        innerHeight: window.innerHeight,
+        targetY
+      };
+    }
   });
-  const metrics = metricsResult?.[0]?.result || { scrollY: 0, scrollHeight: 0, innerHeight: 800 };
+  const metrics = metricsResult?.[0]?.result || { scrollY: 0, scrollHeight: 0, innerHeight: 800, targetY: 0 };
   const originalY = Number(metrics.scrollY || 0);
   const viewportHeight = Math.max(1, Number(metrics.innerHeight || 800));
   const maxY = Math.max(0, Number(metrics.scrollHeight || viewportHeight) - viewportHeight);
+  const startY = Math.min(maxY, Math.max(0, Number(metrics.targetY || 0)));
   const step = Math.max(300, Math.floor(viewportHeight * 0.78));
-  const positions = [0];
-  for (let y = step; y < maxY && positions.length < maxScreenshots; y += step) positions.push(y);
+  const positions = [startY];
+  for (let y = startY + step; y < maxY && positions.length < maxScreenshots; y += step) positions.push(y);
   if (maxY > 0 && positions.length < maxScreenshots && positions[positions.length - 1] !== maxY) positions.push(maxY);
 
   const screenshots = [];
@@ -157,7 +180,7 @@ async function captureQuizScreenshots(tab, maxScreenshots = 6) {
       await chrome.scripting.executeScript({
         target: { tabId: tab.id }, args: [y], func: (top) => window.scrollTo(0, top)
       });
-      await sleep(260);
+      await sleep(180);
       const image = await captureVisibleScreenshot(tab);
       if (image) screenshots.push(image);
     }
@@ -266,23 +289,27 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
     if (message.type === "SAIA_ANALYZE_QUIZ") {
       const questionData = await askContentScript(tab.id, "SAIA_COLLECT_QUESTIONS");
-      const questions = questionData.questions || [];
-      const visualPattern = /\\b(diagram|graph|chart|figure|picture|image|plot|coordinate plane|shown below|shown above|in the diagram|look at the graph|based on the graph)\\b/i;
+      const allQuestions = questionData.questions || [];
+      const requestedStart = Number.isFinite(Number(message.startIndex)) ? Number(message.startIndex) : 0;
+      const startIndex = Math.max(0, Math.min(Math.max(0, allQuestions.length - 1), Math.floor(requestedStart)));
+      const questions = allQuestions.slice(startIndex, startIndex + 6);
+      const visualPattern = /\b(diagram|graph|chart|figure|picture|image|plot|coordinate plane|shown below|shown above|in the diagram|look at the graph|based on the graph)\b/i;
       const needsVisual = questions.some((question) =>
         (question.images || []).length > 0 || visualPattern.test(question.text || "")
       );
       // Text-first questions use extracted DOM content only; avoid screenshot/OCR overhead.
       const capture = needsVisual
-        ? await captureQuizScreenshots(tab, 1)
+        ? await captureQuizScreenshots(tab, 1, startIndex)
         : { images: [], capturedViewports: 0, totalViewports: 0, partial: false };
       const coverageNote = needsVisual
-        ? "Visual coverage: " + capture.capturedViewports + " viewport image(s) captured for questions with possible diagrams."
+        ? "Visual context: one screenshot was captured near the selected question batch."
         : "Visual processing skipped: detected questions appear text-based, so SAIA will use extracted page text.";
       body = {
         title: page.title,
         pageUrl: page.url,
         text: page.text + "\n\n" + coverageNote,
         questions,
+        totalQuestions: allQuestions.length,
         images: capture.images,
         useSearch: Boolean(settings.useSearch)
       };
