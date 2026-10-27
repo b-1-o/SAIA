@@ -65,8 +65,10 @@ export async function analyzeQuiz(input: {
   }
   if (input.questions.length > questions.length) warnings.push("Only the first 40 detected question groups were analyzed in this batch.");
 
-  const ocrResults = await Promise.all(input.images.slice(0, 1).map((image) => recognizeImage(image)));
-  const ocrText = ocrResults.map((result) => result.text).filter(Boolean).join("\n");
+  const ocrResults = [] as Awaited<ReturnType<typeof recognizeImage>>[];
+  // OCR screenshots sequentially so multiple views do not create several WASM workers at once on 8 GB RAM.
+  for (const image of input.images.slice(0, 6)) ocrResults.push(await recognizeImage(image));
+  const ocrText = ocrResults.map((result, index) => "Screenshot " + (index + 1) + ":\\n" + result.text).filter(Boolean).join("\n\n");
   for (const result of ocrResults) if (result.warning) warnings.push(result.warning);
 
   const questionText = questions.map((q) =>
@@ -165,6 +167,7 @@ export async function analyzeQuiz(input: {
     analyzedQuestions: suggestions.length,
     suggestions,
     sources: uniqueSources,
+    screenshotsCaptured: input.images.length,
     warnings
   };
 }
