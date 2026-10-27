@@ -334,7 +334,7 @@ export default function App() {
 
       {quiz && <section className="result-panel">
         <div className="result-head"><span className="result-icon">▤</span><div className="result-heading"><h2>Quiz review</h2><p>{quiz.analyzedQuestions}/{quiz.questionsFound} question groups · {quiz.screenshotsCaptured || 0} screenshots · {quiz.kind.toUpperCase()} · {quiz.model}</p></div></div>
-        {quiz.fallbackUsed && <div className="warning-box">The preferred model was not installed; a fallback was used.</div>}
+        {quiz.fallbackUsed && <div className="warning-box">A fallback model was used, possibly to reduce RAM use. Check the warnings below and verify the suggestions.</div>}
         <div className="review-note">Suggestions are drafts with explanations. Check the original question, image, and course rules before using them.</div>
         {quiz.suggestions.map((item) => <article className="question-result" key={item.index}>
           <div className="question-top"><span className="question-number">Q{item.index}</span><span className="confidence-mini">{Math.round(item.confidence * 100)}% model estimate</span></div>
