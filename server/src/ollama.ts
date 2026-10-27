@@ -80,6 +80,7 @@ export async function chatWithOllama(args: {
         userMessage
       ],
       stream: false,
+      think: false,
       format: "json",
       keep_alive: config.keepAlive,
       options: { temperature: 0.15, num_ctx: 4096, num_predict: args.maxTokens ?? 768 }
