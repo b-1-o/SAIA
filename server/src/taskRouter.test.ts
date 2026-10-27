@@ -2,7 +2,38 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { buildSearchQuery, classifyTask, shouldSearch } from "./taskRouter.js";
 import { parseQuizModelResponse } from "./quiz.js";
-import { shouldUseVisualAnalysis } from "./analyzer.js";
+import { compactPageText, shouldUseVisualAnalysis } from "./analyzer.js";
+
+test("removes LMS navigation while keeping focused assignment text", () => {
+  const raw = [
+    "Skip to Content",
+    "Courses Groups Resources Grades 64",
+    "ERIK GHABUZYAN",
+    "Current Menu Item",
+    "03.02 Theorems of Algebra",
+    "According to the fundamental theorem of algebra, how many zeros does f(x) = 4x^3 - x^2 - 2x + 1 have?",
+    "A. 1",
+    "B. 2",
+    "C. 3",
+    "D. 4"
+  ].join("\n");
+  const compact = compactPageText(raw, 3200);
+  assert.match(compact, /fundamental theorem of algebra/i);
+  assert.match(compact, /A\. 1/);
+  assert.doesNotMatch(compact, /ERIK GHABUZYAN/i);
+  assert.doesNotMatch(compact, /Courses Groups Resources Grades/i);
+});
+
+test("caps very long pages and keeps question-relevant lines", () => {
+  const raw = Array.from({ length: 90 }, (_, index) =>
+    index === 45
+      ? "Find the remainder when f(x) = 2x^3 - 12x^2 + 11x + 2 is divided by x - 5?"
+      : "Navigation menu item and course information line " + index
+  ).join("\n");
+  const compact = compactPageText(raw, 1200);
+  assert.ok(compact.length <= 1200);
+  assert.match(compact, /Find the remainder/);
+});
 
 test("does not use vision for generic LMS chrome or image metadata", () => {
   const page = "Courses Groups Resources Grades Skip to Content Image 1: schoology logo";
