@@ -49,18 +49,62 @@ function systemPrompt(kind: string): string {
   ].join(" ");
 }
 
-const VISUAL_REFERENCE_PATTERN = /\b(?:look at|refer to|use|based on|according to|shown in|as shown in|in|from)\s+(?:the\s+)?(?:diagram|graph|chart|plot|coordinate plane|figure|picture|image)\b|\b(?:diagram|graph|chart|plot|coordinate plane)\s+(?:below|above|shown|provided|pictured)\b|\b(?:read|interpret|identify|describe)\s+(?:the\s+)?(?:graph|diagram|chart|plot|image|figure)\b/i;
+const VISUAL_REFERENCE_PATTERN = /\b(?:look at|refer to|use|based on|according to|shown in|as shown in)\s+(?:the\s+)?(?:diagram|graph|chart|plot|coordinate plane|figure|picture|image)\b|\b(?:diagram|graph|chart|plot|coordinate plane)\s+(?:below|above|shown|provided|pictured)\b|\b(?:read|interpret|identify|describe)\s+(?:the\s+)?(?:graph|diagram|chart|plot)\b/i;
 
 export function shouldUseVisualAnalysis(taskType: string, title: string, text: string): boolean {
   if (taskType === "visual") return true;
   return VISUAL_REFERENCE_PATTERN.test(title + "\n" + text);
 }
 
+const LMS_CHROME_LINE = /^(?:skip to content|courses groups resources grades(?:\s+\d+)?|current menu item|dropdown|materials updates grades mastery members|notifications|terms of use|switch to another course\.?|clever portal|conferences|i-ready|soundtrap|tutor\.com|erik ghabuzyan|virtual academy arts & entertainment.*)$/i;
+const TASK_RELEVANCE = /\?|f\s*\(\s*x\s*\)|[a-z]\s*[=+\-]\s*\d|\b(?:question|problem|solve|calculate|find|evaluate|simplify|factor|factoring|polynomial|remainder|zeros?|roots?|theorem|equation|function|explain|show your work|select|choose|answer choices|assessment|assignment|quiz|test|directions|prompt)\b/i;
+
+export function compactPageText(raw: string, maxChars = 3200): string {
+  const seen = new Set<string>();
+  const lines = String(raw || "").split(/\r?\n/)
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter((line) => {
+      if (!line || LMS_CHROME_LINE.test(line)) return false;
+      const key = line.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  const all = lines.join("\n");
+  if (all.length <= maxChars) return all;
+
+  const score = (line: string, index: number) => {
+    let value = 0;
+    if (TASK_RELEVANCE.test(line)) value += 8;
+    if (/\b(?:a|b|c|d)[.)]\s/.test(line)) value += 3;
+    if (line.length >= 20 && line.length <= 260) value += 1;
+    if (index === 0) value += 1;
+    return value;
+  };
+  const ranked = lines.map((line, index) => ({ line, index, score: score(line, index) }))
+    .sort((a, b) => b.score - a.score || a.index - b.index);
+  const chosen = new Set<number>();
+  let total = 0;
+  for (const candidate of ranked) {
+    for (const index of [candidate.index - 1, candidate.index, candidate.index + 1]) {
+      if (index < 0 || index >= lines.length || chosen.has(index)) continue;
+      const cost = lines[index].length + 1;
+      if (total + cost > maxChars) continue;
+      chosen.add(index);
+      total += cost;
+    }
+    if (total >= maxChars - 160) break;
+  }
+  if (chosen.size === 0) return all.slice(0, maxChars);
+  return [...chosen].sort((a, b) => a - b).map((index) => lines[index]).join("\n").slice(0, maxChars);
+}
+
 export async function analyze(input: AnalyzeInput): Promise<AnalysisResponse> {
   const startedAt = Date.now();
   const warnings: string[] = [];
-  // A screenshot is not enough reason to trigger vision: LMS chrome often contains generic image wording.
-  const needsVisual = shouldUseVisualAnalysis(input.taskType, input.title, input.text);
+  const focusedText = compactPageText(input.text, 3200);
+  // Base visual routing on task-focused text, never on unrelated LMS navigation.
+  const needsVisual = shouldUseVisualAnalysis(input.taskType, input.title, focusedText);
   const imagesForAnalysis = needsVisual ? input.images.slice(0, 1) : [];
 
   // Do not run Tesseract on live LMS screenshots: it duplicates visual parsing and can block on loading OCR assets.
@@ -72,14 +116,14 @@ export async function analyze(input: AnalyzeInput): Promise<AnalysisResponse> {
     warnings.push("Screenshot/OCR skipped because the page has plenty of readable text and no clear diagram clues.");
   }
 
-  const routeText = [input.title, input.text, ocrText].filter(Boolean).join("\n");
+  const routeText = [input.title, focusedText, ocrText].filter(Boolean).join("\n");
   const route = classifyTask(routeText, imagesForAnalysis.length, input.taskType);
-  const combinedText = [input.title, input.text, ocrText].filter(Boolean).join("\n\n").slice(0, 12000);
+  const combinedText = [input.title, focusedText, ocrText].filter(Boolean).join("\n\n").slice(0, 4200);
 
   let sources: SearchSource[] = [];
   if (input.useSearch && config.tavilyApiKey && shouldSearch(combinedText, route.kind)) {
     try {
-      const querySeed = ocrText || input.text;
+      const querySeed = ocrText || focusedText;
       sources = await searchWeb(buildSearchQuery(querySeed));
     } catch (error) {
       warnings.push("Web search was skipped: " + (error instanceof Error ? error.message : "unknown search error"));
@@ -102,19 +146,20 @@ export async function analyze(input: AnalyzeInput): Promise<AnalysisResponse> {
     "Page title: " + (input.title || "(not available)").slice(0, 200),
     "Page URL: " + (input.pageUrl || "(not available)"),
     "Task classification: " + route.kind,
-    "Extracted page text:\n" + (input.text || "(no page text captured)").slice(0, 5000),
+    "Extracted page text:\n" + (focusedText || "(no page text captured)").slice(0, 3200),
     "Screenshot context:\n" + (needsVisual ? "(attached for direct visual reading; no separate OCR pass)" : "(not attached; text-first analysis)"),
     "Optional web search excerpts:\n" + sourceContext,
     "Give a concise explanation. Do not repeat the entire page; focus on the visible task and mention uncertainty."
   ].join("\n\n");
 
-  console.info("[SAIA page] Sending request: model=" + resolved.model + ", promptChars=" + prompt.length + ", images=" + imagesForAnalysis.length + ".");
+  console.info("[SAIA page] Sending request: model=" + resolved.model + ", inputChars=" + input.text.length + ", focusedChars=" + focusedText.length + ", promptChars=" + prompt.length + ", images=" + imagesForAnalysis.length + ".");
   const modelContent = await chatWithOllama({
     model: resolved.model,
     system: systemPrompt(route.kind),
     prompt,
     images: imagesForAnalysis,
-    maxTokens: 320
+    maxTokens: 160,
+    numCtx: 2048
   });
   console.info("[SAIA page] Finished in " + Math.round((Date.now() - startedAt) / 1000) + "s.");
   const parsed = safeJson(modelContent);
