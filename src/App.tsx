@@ -24,7 +24,7 @@ type QuizSuggestion = {
 };
 type QuizResult = {
   title: string; kind: string; model: string; fallbackUsed: boolean;
-  questionsFound: number; analyzedQuestions: number; suggestions: QuizSuggestion[]; warnings: string[];
+  questionsFound: number; analyzedQuestions: number; suggestions: QuizSuggestion[]; sources: Source[]; warnings: string[];
 };
 type FileDraft = {
   filename: string; mimeType: string; sourceType: string; extractedText: string;
@@ -325,6 +325,12 @@ export default function App() {
           {item.needsReview && <small className="error-inline">Review this question carefully.</small>}
         </article>)}
         {quiz.warnings.map((warning, index) => <div className="warning-box" key={index}>{warning}</div>)}
+        {quiz.sources?.length > 0 && <div className="sources-section"><span className="label">FACTUAL SOURCES</span>
+          {quiz.sources.map((source, index) => <a className="source-item" href={source.url} target="_blank" rel="noreferrer" key={source.url + index}>
+            <span className="source-index">{String(index + 1).padStart(2, "0")}</span>
+            <span><strong>{source.title || source.url}</strong><small>{source.content}</small></span><span className="source-arrow">↗</span>
+          </a>)}
+        </div>}
       </section>}
 
       {analysis && <section className="result-panel">
