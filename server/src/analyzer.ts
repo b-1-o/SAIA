@@ -49,11 +49,11 @@ function systemPrompt(kind: string): string {
   ].join(" ");
 }
 
-const VISUAL_REFERENCE_PATTERN = /\\b(?:look at|refer to|use|based on|according to|shown in|as shown in|in|from)\\s+(?:the\\s+)?(?:diagram|graph|chart|plot|coordinate plane|figure|picture|image)\\b|\\b(?:diagram|graph|chart|plot|coordinate plane)\\s+(?:below|above|shown|provided|pictured)\\b|\\b(?:read|interpret|identify|describe)\\s+(?:the\\s+)?(?:graph|diagram|chart|plot|image|figure)\\b/i;
+const VISUAL_REFERENCE_PATTERN = /\b(?:look at|refer to|use|based on|according to|shown in|as shown in|in|from)\s+(?:the\s+)?(?:diagram|graph|chart|plot|coordinate plane|figure|picture|image)\b|\b(?:diagram|graph|chart|plot|coordinate plane)\s+(?:below|above|shown|provided|pictured)\b|\b(?:read|interpret|identify|describe)\s+(?:the\s+)?(?:graph|diagram|chart|plot|image|figure)\b/i;
 
 export function shouldUseVisualAnalysis(taskType: string, title: string, text: string): boolean {
   if (taskType === "visual") return true;
-  return VISUAL_REFERENCE_PATTERN.test(title + "\\n" + text);
+  return VISUAL_REFERENCE_PATTERN.test(title + "\n" + text);
 }
 
 export async function analyze(input: AnalyzeInput): Promise<AnalysisResponse> {
