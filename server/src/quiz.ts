@@ -1,3 +1,4 @@
+import { freemem } from "node:os";
 import { config } from "./config.js";
 import { buildSearchQuery, classifyTask, shouldSearch } from "./taskRouter.js";
 import { searchWeb } from "./search.js";
@@ -25,6 +26,13 @@ export type QuizSuggestion = {
 
 type ParsedQuizOutput = { summary?: unknown; items: Array<Record<string, unknown>> };
 
+function isPlaceholderText(value: unknown): boolean {
+  const text = typeof value === "string" ? value.trim().replace(/[.\s]+$/, "") : "";
+  if (!text) return true;
+  return /^(?:brief learning-oriented response|short response or hint|one concise sentence|one short sentence|short reason|short explanation|insert (?:answer|response|explanation)|your answer here|placeholder|todo)$/i.test(text)
+    || /^(?:response|explanation|answer) goes here$/i.test(text);
+}
+
 function normalizeItems(value: unknown): Array<Record<string, unknown>> {
   if (!Array.isArray(value)) return [];
   return value.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object")
@@ -35,7 +43,9 @@ function normalizeItems(value: unknown): Array<Record<string, unknown>> {
       explanation: item.explanation ?? item.reasoning ?? item.reason ?? item.work ?? "",
       confidence: item.confidence ?? item.score ?? 0.5,
       needsReview: item.needsReview ?? item.needs_review ?? true
-    }));
+    }))
+    // Reject template-like output so it cannot be mistaken for an answer or counted as a completed question.
+    .filter((item) => !isPlaceholderText(item.suggestedResponse) && !isPlaceholderText(item.explanation));
 }
 
 export function parseQuizModelResponse(raw: string): ParsedQuizOutput {
@@ -147,7 +157,12 @@ export async function analyzeQuiz(input: {
 
   const routeText = [input.title, questionText].filter(Boolean).join("\n");
   const route = classifyTask(routeText, needsVisual ? 1 : 0, "auto");
-  const resolved = await resolveModel(route.preferredModel);
+  // A 4B model is materially more reliable for math than the 0.8B fallback.
+  // On smaller machines, use it only when the OS currently reports enough genuinely free RAM.
+  const allowLargerMathModel = route.kind === "math" && freemem() >= 3.5 * 1024 ** 3;
+  const resolved = await resolveModel(route.preferredModel, {
+    allowPreferredOnLowMemory: allowLargerMathModel
+  });
   if (resolved.fallbackUsed) warnings.push(resolved.fallbackReason === "low-memory"
     ? "Low-memory mode: using " + resolved.model + " instead of " + route.preferredModel + ". It is faster but may be less accurate."
     : "Preferred model " + route.preferredModel + " is not installed; using " + resolved.model + ".");
@@ -205,17 +220,34 @@ export async function analyzeQuiz(input: {
   const parsed = parseQuizModelResponse(raw);
   const byIndex = new Map<number, Record<string, unknown>>();
 
-  const addIndexedItems = (items: Array<Record<string, unknown>>) => {
-    for (const item of items) {
-      const index = Number(item.index);
-      if (Number.isInteger(index) && index > 0) byIndex.set(index, item);
+  const addIndexedItems = (
+    items: Array<Record<string, unknown>>,
+    targetQuestions: QuizQuestionInput[]
+  ) => {
+    const expected = new Set(targetQuestions.map((question) => question.index));
+    for (const [position, item] of items.entries()) {
+      const returnedIndex = Number(item.index);
+      let targetIndex: number | undefined;
+      if (Number.isInteger(returnedIndex) && expected.has(returnedIndex)) {
+        targetIndex = returnedIndex;
+      } else if (
+        Number.isInteger(returnedIndex) &&
+        returnedIndex >= 1 &&
+        returnedIndex <= targetQuestions.length
+      ) {
+        // Handle models that number a batch from 1 instead of preserving original quiz indices.
+        targetIndex = targetQuestions[returnedIndex - 1]?.index;
+      } else if (items.length === targetQuestions.length) {
+        targetIndex = targetQuestions[position]?.index;
+      }
+      if (targetIndex && !byIndex.has(targetIndex)) {
+        byIndex.set(targetIndex, { ...item, index: targetIndex });
+      }
     }
   };
-  const findMissingQuestions = () => questions.filter((question, position) =>
-    !byIndex.has(question.index) && !byIndex.has(position + 1)
-  );
+  const findMissingQuestions = () => questions.filter((question) => !byIndex.has(question.index));
 
-  addIndexedItems(parsed.items);
+  addIndexedItems(parsed.items, questions);
   let missingQuestions = findMissingQuestions();
 
   // Small local models can return valid JSON containing only the first few items.
@@ -236,39 +268,27 @@ export async function analyzeQuiz(input: {
     ).join("\n\n");
 
     const compactPrompt = [
-      "Return one valid compact JSON object only. No markdown or prose outside JSON.",
-      '{"items":[{"index":' + missingQuestions[0].index +
-        ',"suggestedResponse":"brief learning-oriented response","explanation":"one concise sentence","confidence":0.5,"needsReview":true}]}',
-      "The items array must contain exactly one object for EACH question below.",
-      "The index for every item must exactly match the original Question number shown below, not a new sequence.",
-      "Use a short response and one-sentence explanation. Do not omit any listed question.",
+      "Return ONLY a valid JSON object. No markdown, preamble, example, or prose outside JSON.",
+      "The object must have one top-level property named items, which is an array.",
+      "Each array item must have exactly these fields: index (number), suggestedResponse (string), explanation (string), confidence (number from 0 to 1), needsReview (boolean).",
+      "Include exactly one item per question below and preserve the original Question number printed in its text.",
+      "Every suggestedResponse must be a real response specific to that question and its options, not a template, generic instruction, or placeholder.",
+      "Every explanation must state the actual method or evidence relevant to that question, not describe what an explanation should contain.",
+      "For multiple-choice items, include the actual option text and its letter only when it can be supported by the given wording. If uncertain, clearly state the uncertainty and set needsReview to true.",
+      "Do not omit any listed question. Keep each item concise.",
       "Questions and options:",
       missingText
     ].join("\n");
 
     const retryRaw = await chatWithOllama({
       model: resolved.model,
-      system: "Return valid compact JSON only. Include every listed question with its original index. Keep each response concise.",
+      system: "You are a careful study tutor. Return valid compact JSON only. Never copy example placeholders because no examples are supplied. If you cannot reliably solve a question, say what to check and lower confidence.",
       prompt: compactPrompt,
       images: [],
-      maxTokens: 500
+      maxTokens: 650
     });
     const retryItems = parseQuizModelResponse(retryRaw).items;
-    const expectedIndices = new Set(missingQuestions.map((question) => question.index));
-    const retryIndices = retryItems.map((item) => Number(item.index));
-    const indicesMatchRequestedQuestions = retryItems.length > 0 &&
-      retryIndices.every((index) => expectedIndices.has(index));
-
-    retryItems.forEach((item, position) => {
-      // If the model re-numbers the smaller retry batch from 1, associate responses
-      // by their output order with the requested missing questions.
-      const targetIndex = indicesMatchRequestedQuestions
-        ? retryIndices[position]
-        : missingQuestions[position]?.index;
-      if (targetIndex && !byIndex.has(targetIndex)) {
-        byIndex.set(targetIndex, { ...item, index: targetIndex });
-      }
-    });
+    addIndexedItems(retryItems, missingQuestions);
 
     missingQuestions = findMissingQuestions();
     console.info("[SAIA quiz] Repair pass returned " + retryItems.length +
@@ -276,7 +296,8 @@ export async function analyzeQuiz(input: {
     if (missingQuestions.length > 0) {
       console.warn("[SAIA quiz] Format-repair response preview: " +
         retryRaw.slice(0, 260).replace(/\s+/g, " "));
-      warnings.push("The model returned incomplete structured suggestions even after a repair attempt. Check the [SAIA quiz] preview in the API terminal; verify missing items individually.");
+      warnings.push("The model still returned incomplete or template-like suggestions for " +
+        missingQuestions.length + " question(s). No placeholder text was presented as an answer; review those items individually.");
     }
   }
 
