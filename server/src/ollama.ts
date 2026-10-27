@@ -1,3 +1,4 @@
+import { totalmem } from "node:os";
 import { config } from "./config.js";
 
 export type OllamaModel = { name: string; size?: number };
@@ -22,19 +23,35 @@ export async function isOllamaAvailable(): Promise<boolean> {
   }
 }
 
-export async function resolveModel(preferred: string): Promise<{ model: string; fallbackUsed: boolean; installed: string[] }> {
+export async function resolveModel(preferred: string): Promise<{
+  model: string;
+  fallbackUsed: boolean;
+  fallbackReason: "low-memory" | "missing" | null;
+  installed: string[];
+}> {
   const installedModels = await listInstalledModels();
   const names = installedModels.map((model) => model.name);
+  const lowMemorySystem = totalmem() < 10 * 1024 ** 3;
+  const fastCandidate = names.find((name) => name === config.fastModel || name.startsWith(config.fastModel + ":"));
+
+  // On systems with less than 10 GiB RAM, prefer the lightweight model to avoid swap storms/OOM.
+  if (lowMemorySystem && preferred !== config.fastModel && fastCandidate) {
+    return { model: fastCandidate, fallbackUsed: true, fallbackReason: "low-memory", installed: names };
+  }
+
   const exact = names.find((name) => name === preferred || name.startsWith(preferred + ":"));
-  if (exact) return { model: exact, fallbackUsed: false, installed: names };
+  if (exact) return { model: exact, fallbackUsed: false, fallbackReason: null, installed: names };
 
-  const fallbackCandidate = names.find((name) => name === config.fastModel || name.startsWith(config.fastModel + ":"));
-  if (fallbackCandidate) return { model: fallbackCandidate, fallbackUsed: true, installed: names };
+  if (fastCandidate) {
+    return { model: fastCandidate, fallbackUsed: true, fallbackReason: "missing", installed: names };
+  }
 
-  if (names.length > 0) return { model: names[0], fallbackUsed: true, installed: names };
+  if (names.length > 0) {
+    return { model: names[0], fallbackUsed: true, fallbackReason: "missing", installed: names };
+  }
+
   throw new Error("No Ollama models are installed. Run: ollama pull " + preferred);
 }
-
 export async function chatWithOllama(args: {
   model: string;
   system: string;
