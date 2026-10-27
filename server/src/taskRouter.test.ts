@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { buildSearchQuery, classifyTask, shouldSearch } from "./taskRouter.js";
+import { parseQuizModelResponse } from "./quiz.js";
 
 test("routes routine prose to the lightweight profile", () => {
   assert.equal(classifyTask("Read this paragraph and summarize it.").kind, "general");
@@ -33,4 +34,37 @@ test("removes common private details from search queries", () => {
   assert.equal(query.includes("alex@example.com"), false);
   assert.equal(query.includes("Alex Smith"), false);
   assert.match(query, /Great Depression/);
+});
+test("parses the expected compact quiz response", () => {
+  const parsed = parseQuizModelResponse('{"items":[{"index":2,"suggestedResponse":"Option B","explanation":"Short reason","confidence":0.7,"needsReview":true}]}');
+  assert.equal(parsed.items.length, 1);
+  assert.equal(parsed.items[0].index, 2);
+  assert.equal(parsed.items[0].suggestedResponse, "Option B");
+  assert.equal(parsed.items[0].explanation, "Short reason");
+});
+
+test("recovers a fenced response using alternate model field names", () => {
+  const response = "Result:\\n```json\\n" +
+    '{"answers":[{"question_number":3,"answer":"Choice C","reason":"Check the theorem","score":0.6}]}' +
+    "\\n```";
+  const parsed = parseQuizModelResponse(response);
+  assert.equal(parsed.items.length, 1);
+  assert.equal(parsed.items[0].index, 3);
+  assert.equal(parsed.items[0].suggestedResponse, "Choice C");
+  assert.equal(parsed.items[0].explanation, "Check the theorem");
+});
+
+test("parses a top-level array and ignores reasoning tags", () => {
+  const parsed = parseQuizModelResponse('<think>internal note</think> [{"number":1,"response":"Hint","work":"One line"}]');
+  assert.equal(parsed.items.length, 1);
+  assert.equal(parsed.items[0].index, 1);
+  assert.equal(parsed.items[0].suggestedResponse, "Hint");
+  assert.equal(parsed.items[0].explanation, "One line");
+});
+
+test("returns an empty item list for completely invalid model output", () => {
+  assert.deepEqual(parseQuizModelResponse("I cannot format this response."), {
+    summary: "The local model did not return a recognizable JSON answer.",
+    items: []
+  });
 });
