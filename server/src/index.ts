@@ -51,6 +51,7 @@ const QuizSchema = z.object({
       label: z.string().max(300)
     })).max(30).default([])
   })).max(100),
+  totalQuestions: z.number().int().nonnegative().max(100).optional(),
   images: z.array(ImageSchema).max(6).default([]),
   useSearch: z.boolean().default(false)
 });
@@ -116,6 +117,7 @@ app.post("/api/analyze-quiz", async (request, response) => {
       pageUrl: validation.data.pageUrl,
       pageText: validation.data.text,
       questions: validation.data.questions,
+      totalQuestions: validation.data.totalQuestions,
       images: validation.data.images,
       useSearch: validation.data.useSearch
     }));
