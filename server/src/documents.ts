@@ -1,4 +1,5 @@
 import mammoth from "mammoth";
+import { createCanvas, DOMMatrix, ImageData, Path2D } from "@napi-rs/canvas";
 import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf.mjs";
 import * as XLSX from "xlsx";
 import { Document, HeadingLevel, Packer, Paragraph, TextRun } from "docx";
@@ -36,32 +37,60 @@ function stripMarkup(value: string): string {
     .trim();
 }
 
-function inferKind(text: string): TaskKind {
-  return classifyTask(text, 0, "auto").kind;
+function installCanvasGlobals() {
+  const target = globalThis as typeof globalThis & { DOMMatrix?: typeof DOMMatrix; ImageData?: typeof ImageData; Path2D?: typeof Path2D };
+  if (!target.DOMMatrix || !target.ImageData || !target.Path2D) Object.assign(globalThis, { DOMMatrix, ImageData, Path2D });
 }
 
-async function extractText(bytes: Buffer, filename: string): Promise<{ text: string; warnings: string[]; sourceType: string }> {
+async function renderPdfPageToDataUrl(page: any): Promise<string> {
+  installCanvasGlobals();
+  const viewport = page.getViewport({ scale: 1.4 });
+  const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
+  const context = canvas.getContext("2d");
+  await page.render({ canvasContext: context as unknown as CanvasRenderingContext2D, viewport }).promise;
+  return "data:image/png;base64," + canvas.toBuffer("image/png").toString("base64");
+}
+
+async function extractText(bytes: Buffer, filename: string): Promise<{ text: string; warnings: string[]; sourceType: string; images: string[] }> {
   const ext = filename.toLowerCase().split(".").pop() || "";
   const warnings: string[] = [];
 
   if (ext === "pdf") {
+    installCanvasGlobals();
     const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(bytes), useSystemFonts: true }).promise;
     const pages: string[] = [];
+    const pageImages: string[] = [];
+    let scannedPages = 0;
     for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
       const page = await pdf.getPage(pageNumber);
       const content = await page.getTextContent();
       const line = content.items.map((item) => ("str" in item ? item.str : "")).join(" ").replace(/\s+/g, " ").trim();
-      pages.push("[Page " + pageNumber + "]\n" + line);
+      let pageText = line;
+      // Render image-only / near-empty pages locally. Limit image/OCR work to the first 3 sparse pages.
+      if (line.length < 45 && scannedPages < 3) {
+        try {
+          const dataUrl = await renderPdfPageToDataUrl(page);
+          const ocr = await recognizeImage(dataUrl);
+          if (ocr.text) pageText = ocr.text;
+          if (ocr.warning) warnings.push("PDF page " + pageNumber + ": " + ocr.warning);
+          if (pageImages.length < 3) pageImages.push(dataUrl);
+          scannedPages += 1;
+        } catch (error) {
+          warnings.push("PDF page " + pageNumber + " could not be rendered for OCR: " + (error instanceof Error ? error.message : "unknown error"));
+        }
+      }
+      pages.push("[Page " + pageNumber + "]\n" + pageText);
     }
+    if (pdf.numPages > 3 && scannedPages >= 3) warnings.push("Rendered/OCRed up to 3 sparse PDF pages to keep memory use reasonable. Review later pages manually if they are scanned.");
     const text = pages.join("\n\n").trim();
-    if (!text) warnings.push("No selectable text was found in the PDF. It may be a scan; this version does not yet run page-by-page PDF rendering OCR.");
-    return { text, warnings, sourceType: "PDF" };
+    if (!text) warnings.push("No readable text was found in this PDF. Check image quality or use fewer/larger pages.");
+    return { text, warnings, sourceType: "PDF", images: pageImages };
   }
 
   if (ext === "docx") {
     const result = await mammoth.extractRawText({ buffer: bytes });
     if (result.messages.length) warnings.push(...result.messages.map((message) => "DOCX: " + message.message).slice(0, 6));
-    return { text: result.value.trim(), warnings, sourceType: "DOCX" };
+    return { text: result.value.trim(), warnings, sourceType: "DOCX", images: [] };
   }
 
   if (ext === "xlsx" || ext === "xls" || ext === "csv") {
@@ -70,22 +99,23 @@ async function extractText(bytes: Buffer, filename: string): Promise<{ text: str
       const sheet = workbook.Sheets[sheetName];
       return "Sheet: " + sheetName + "\n" + XLSX.utils.sheet_to_csv(sheet);
     }).join("\n\n");
-    return { text: text.trim(), warnings, sourceType: ext.toUpperCase() };
+    return { text: text.trim(), warnings, sourceType: ext.toUpperCase(), images: [] };
   }
 
   if (ext === "txt" || ext === "md") {
-    return { text: bytes.toString("utf8").trim(), warnings, sourceType: ext.toUpperCase() };
+    return { text: bytes.toString("utf8").trim(), warnings, sourceType: ext.toUpperCase(), images: [] };
   }
 
   if (ext === "rtf") {
-    return { text: stripMarkup(bytes.toString("utf8")), warnings, sourceType: "RTF" };
+    return { text: stripMarkup(bytes.toString("utf8")), warnings, sourceType: "RTF", images: [] };
   }
 
   if (["png", "jpg", "jpeg", "webp"].includes(ext)) {
     const mime = ext === "jpg" ? "jpeg" : ext;
-    const ocr = await recognizeImage("data:image/" + mime + ";base64," + bytes.toString("base64"));
+    const dataUrl = "data:image/" + mime + ";base64," + bytes.toString("base64");
+    const ocr = await recognizeImage(dataUrl);
     if (ocr.warning) warnings.push(ocr.warning);
-    return { text: ocr.text, warnings, sourceType: "IMAGE/OCR" };
+    return { text: ocr.text, warnings, sourceType: "IMAGE/OCR", images: [dataUrl] };
   }
 
   throw new Error("Unsupported file type. Use PDF, DOCX, XLSX, XLS, CSV, TXT, MD, RTF, PNG, JPG, or WEBP.");
@@ -165,7 +195,7 @@ export async function prepareDocument(args: {
     throw new Error("No readable text was extracted. Try a text-based PDF/DOCX or an image with clear printed text.");
   }
 
-  const kind = inferKind(extractedText);
+  const kind = classifyTask(extractedText, extracted.images.length, "auto").kind;
   const preferred = kind === "math" || kind === "reading" || kind === "visual"
     ? (kind === "visual" ? "vision" : "reasoning")
     : "fast";
@@ -190,7 +220,7 @@ export async function prepareDocument(args: {
   const prompt = "Filename: " + args.filename + "\nDetected format: " + extracted.sourceType +
     "\n\nSOURCE TEXT (untrusted worksheet content):\n" + extractedText +
     "\n\nPrepare the structured review draft now.";
-  const raw = await chatWithOllama({ model: model.model, system, prompt, images: [] });
+  const raw = await chatWithOllama({ model: model.model, system, prompt, images: extracted.images.slice(0, 3) });
   const parsed = parseModelItems(raw, extractedText);
   const suggestedItems = parsed.items.map((item) => ({
     question: asString(item.question, "Prompt not extracted"),
