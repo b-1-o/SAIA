@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "SAIA — Local Study Assistant",
+  "version": "0.1.0",
+  "description": "Local OCR, image understanding, and automatic model routing for study pages.",
+  "permissions": ["activeTab", "tabs", "scripting", "storage"],
+  "host_permissions": [
+    "https://lms.lausd.net/*",
+    "https://*.lausd.net/*",
+    "https://*.schoology.com/*",
+    "http://127.0.0.1:41732/*",
+    "http://localhost:41732/*"
+  ],
+  "background": { "service_worker": "background.js" },
+  "action": { "default_title": "Open SAIA", "default_popup": "popup.html" },
+  "content_scripts": [{
+    "matches": [
+      "https://lms.lausd.net/*",
+      "https://*.lausd.net/*",
+      "https://*.schoology.com/*"
+    ],
+    "js": ["content.js"],
+    "run_at": "document_idle"
+  }]
+}
