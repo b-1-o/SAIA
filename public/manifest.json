@@ -3,7 +3,7 @@
   "name": "SAIA — Local Study Assistant",
   "version": "0.2.0",
   "description": "Course discovery, quiz review, OCR, local model routing, and worksheet drafts.",
-  "permissions": ["activeTab", "tabs", "scripting", "storage"],
+  "permissions": ["activeTab", "tabs", "scripting", "storage", "downloads"],
   "host_permissions": [
     "https://lms.lausd.net/*",
     "https://*.lausd.net/*",
