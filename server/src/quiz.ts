@@ -1,7 +1,7 @@
 import { config } from "./config.js";
 import { buildSearchQuery, classifyTask, shouldSearch } from "./taskRouter.js";
 import { searchWeb } from "./search.js";
-import { recognizeImage } from "./ocr.js";
+import { recognizeImages } from "./ocr.js";
 import { chatWithOllama, resolveModel } from "./ollama.js";
 import type { RequestedTaskKind, TaskKind } from "./types.js";
 
@@ -68,9 +68,8 @@ export async function analyzeQuiz(input: {
   const coverageWarning = input.pageText.match(/Visual coverage warning:[^\n]*/i);
   if (coverageWarning) warnings.push(coverageWarning[0]);
 
-  const ocrResults = [] as Awaited<ReturnType<typeof recognizeImage>>[];
-  // OCR screenshots sequentially so multiple views do not create several WASM workers at once on 8 GB RAM.
-  for (const image of input.images.slice(0, 6)) ocrResults.push(await recognizeImage(image));
+  const ocrResults = await recognizeImages(input.images.slice(0, 3));
+  if (input.images.length > 3) warnings.push("OCR was limited to the first 3 screenshots to reduce processing time and memory use.");
   const ocrText = ocrResults.map((result, index) => "Screenshot " + (index + 1) + ":\\n" + result.text).filter(Boolean).join("\n\n");
   for (const result of ocrResults) if (result.warning) warnings.push(result.warning);
 
@@ -85,7 +84,9 @@ export async function analyzeQuiz(input: {
   const hasVisualContent = input.images.length > 0 || questions.some((question) => question.images.length > 0);
   const route = classifyTask(routeText, hasVisualContent ? 1 : 0, "auto");
   const resolved = await resolveModel(route.preferredModel);
-  if (resolved.fallbackUsed) warnings.push("Preferred model " + route.preferredModel + " is not installed; using " + resolved.model + ".");
+  if (resolved.fallbackUsed) warnings.push(resolved.fallbackReason === "low-memory"
+    ? "Low-memory mode: using " + resolved.model + " instead of " + route.preferredModel + " to avoid exhausting RAM. Results may be less accurate; verify carefully."
+    : "Preferred model " + route.preferredModel + " is not installed; using " + resolved.model + ".");
 
   const sources: Array<{ title: string; url: string; content: string }> = [];
   if (input.useSearch && config.tavilyApiKey) {
