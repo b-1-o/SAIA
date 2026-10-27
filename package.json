@@ -14,6 +14,7 @@
     "test": "tsx --test server/src/taskRouter.test.ts"
   },
   "dependencies": {
+    "@napi-rs/canvas": "^0.1.80",
     "cors": "^2.8.5",
     "dotenv": "^16.6.1",
     "docx": "^9.5.1",
