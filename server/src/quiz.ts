@@ -100,7 +100,7 @@ export async function analyzeQuiz(input: {
   if (resolved.fallbackUsed) warnings.push(resolved.fallbackReason === "low-memory"
     ? "Low-memory mode: using " + resolved.model + " instead of " + route.preferredModel + ". It is faster but may be less accurate."
     : "Preferred model " + route.preferredModel + " is not installed; using " + resolved.model + ".");
-  console.info("[SAIA quiz] Prepared " + questions.length + " questions; model=" + resolved.model + "; visual=" + needsVisual + ".");
+  console.info("[SAIA quiz] Prepared " + questions.length + " questions; model=" + resolved.model + "; visual=" + needsVisual + "; text-only assessment context.");
 
   const sources: Array<{ title: string; url: string; content: string }> = [];
   // Keep optional research small so it does not delay the core local analysis.
@@ -135,8 +135,7 @@ export async function analyzeQuiz(input: {
     "Course page title: " + input.title.slice(0, 200),
     "Page URL: " + (input.pageUrl || "(not available)"),
     "Detected questions (" + questions.length + "):\n" + questionText,
-    "Other page context:\n" + input.pageText.slice(0, 1200),
-    needsVisual ? "Inspect the attached current-page screenshot only for symbols or diagrams that are missing from the question text." : "Text-first request: do not infer details from a screenshot.",
+    needsVisual ? "Inspect the attached screenshot only to clarify symbols or diagrams in these current-page questions." : "Text-first request: do not infer details from a screenshot.",
     "Optional factual sources:\n" + sourceContext,
     "Analyze only the questions provided above. Include concise suggestions and explanations."
   ].join("\n\n");
@@ -154,6 +153,7 @@ export async function analyzeQuiz(input: {
 
   const parsed = parseJson(raw);
   const itemList = Array.isArray(parsed.items) ? parsed.items as Array<Record<string, unknown>> : [];
+  if (itemList.length === 0) warnings.push("Questions were extracted, but the model returned no structured suggestions. Use Analyze visible page for one question at a time, or check the server log for model timing/errors.");
   const byIndex = new Map<number, Record<string, unknown>>();
   for (const item of itemList) {
     const index = Number(item.index);
