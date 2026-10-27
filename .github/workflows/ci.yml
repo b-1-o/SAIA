@@ -18,6 +18,8 @@ jobs:
           node-version: 22
       - name: Install dependencies
         run: npm install
+      - name: Check extension JavaScript syntax
+        run: node --check public/background.js && node --check public/content.js
       - name: Typecheck
         run: npm run typecheck
       - name: Unit tests
