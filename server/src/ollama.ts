@@ -58,6 +58,7 @@ export async function chatWithOllama(args: {
   prompt: string;
   images: string[];
   maxTokens?: number;
+  numCtx?: number;
 }): Promise<string> {
   const images = args.images.map((image) => image.slice(image.indexOf(",") + 1)).filter(Boolean);
   const userMessage: { role: string; content: string; images?: string[] } = {
@@ -83,7 +84,7 @@ export async function chatWithOllama(args: {
       think: false,
       format: "json",
       keep_alive: config.keepAlive,
-      options: { temperature: 0.15, num_ctx: 4096, num_predict: args.maxTokens ?? 768 }
+      options: { temperature: 0.15, num_ctx: args.numCtx ?? 4096, num_predict: args.maxTokens ?? 768 }
     }),
       signal: AbortSignal.timeout(120000)
     });
