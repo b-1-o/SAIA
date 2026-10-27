@@ -65,8 +65,79 @@
   }
 
   function collectQuestions() {
-    // Prefer LMS question-card selectors before generic fieldsets/group containers.
-    // Combining every selector at once can select a parent quiz wrapper and hide all nested questions.
+    // Schoology/LAUSD's assessment renderer: stay inside the currently open assessment form.
+    // Never crawl course links or unrelated LMS content while a quiz is active.
+    const assessmentRoot = document.querySelector(
+      "#s-assessment-question-fill-form, form.s-assessment-question-fill-form, form[id*=assessment-question-fill]"
+    );
+
+    if (assessmentRoot) {
+      const questionNodes = Array.from(assessmentRoot.querySelectorAll(".question-wrapper"))
+        .filter(visible)
+        .slice(0, 6);
+
+      return questionNodes.map((node, position) => {
+        const titleNode = node.querySelector(
+          ".question-title, [data-question-title], .question-prompt, .question-text"
+        );
+        const wholeHeader = node.querySelector(".question-question");
+        const headerText = clean(titleNode?.innerText || wholeHeader?.innerText || node.innerText, 1800);
+        const numberText = clean(node.querySelector(".question-number")?.innerText, 80);
+        const numberMatch = numberText.match(/(?:question\s*)?(\d+)/i);
+        const index = numberMatch ? Number(numberMatch[1]) : position + 1;
+
+        // On this Schoology page, the label contains only the choice letter (a/b/c/d);
+        // the actual answer text is in the adjacent .form-radio-answer cell.
+        const optionRows = Array.from(node.querySelectorAll(
+          ".form-radios-table tr, .form-radios tr, .multiple-choices tr"
+        ));
+        let options = optionRows.map((row) => {
+          const answerCell = row.querySelector(".form-radio-answer, [id*='-description']");
+          return clean(answerCell?.innerText || "", 600);
+        }).filter(Boolean);
+
+        if (!options.length) {
+          options = Array.from(node.querySelectorAll(
+            "[role=radio], [role=checkbox], select option, label.option, label"
+          )).map((option) => {
+            const explicitText = option.getAttribute("aria-label") || option.getAttribute("data-label");
+            const siblingText = option.closest("tr")?.querySelector(".form-radio-answer, [id*='-description']")?.innerText;
+            const value = clean(siblingText || explicitText || option.innerText || "", 600);
+            return value.replace(/^[a-d]\s+/i, "").trim();
+          }).filter(Boolean);
+        }
+        options = [...new Set(options)].slice(0, 12);
+
+        const images = Array.from(node.querySelectorAll("img"))
+          .filter((image) => image.width > 20 && image.height > 20)
+          .map((image) => ({
+            alt: clean(image.alt, 240),
+            src: absoluteUrl(image.currentSrc || image.src),
+            width: image.naturalWidth || image.width,
+            height: image.naturalHeight || image.height
+          }))
+          .slice(0, 4);
+
+        const inputs = Array.from(node.querySelectorAll("input,textarea,select"))
+          .filter((input) => !/hidden|submit|button/.test(input.type || ""))
+          .map((input) => ({
+            type: input.type || input.tagName.toLowerCase(),
+            name: input.name || "",
+            label: clean(input.getAttribute("aria-label") || input.closest("label")?.innerText || "", 180)
+          }))
+          .slice(0, 12);
+
+        return {
+          index,
+          text: headerText,
+          options,
+          images,
+          inputs
+        };
+      }).filter((question) => question.text.length >= 8);
+    }
+
+    // Generic fallback for other LMS renderers. Use only this tab's rendered question groups.
     const preferredSelectors = [
       "[data-question-id]", "[data-testid*=question]", ".quiz-question",
       ".assessment-question", ".question-wrapper", ".question"
@@ -85,25 +156,25 @@
 
     const chosen = [];
     for (const node of candidates) {
-      const text = clean(node.innerText, 5000);
+      const text = clean(node.innerText, 1800);
       if (text.length < 8) continue;
       if (chosen.some((entry) => entry.element.contains(node) || node.contains(entry.element))) continue;
-      const options = Array.from(node.querySelectorAll("label, [role=radio], [role=checkbox], input[type=radio], input[type=checkbox], select option"))
-        .map((option) => clean(option.innerText || option.getAttribute("aria-label") || option.value || option.parentElement?.innerText, 500))
+      const options = Array.from(node.querySelectorAll(
+        ".form-radio-answer, [role=radio], [role=checkbox], input[type=radio], input[type=checkbox], select option, label"
+      )).map((option) => clean(option.innerText || option.getAttribute("aria-label") || option.value || "", 500))
         .filter((value) => value.length > 0);
       const images = Array.from(node.querySelectorAll("img"))
         .filter((image) => image.width > 20 && image.height > 20)
-        .map((image) => ({ alt: clean(image.alt, 300), src: absoluteUrl(image.currentSrc || image.src), width: image.naturalWidth, height: image.naturalHeight }))
-        .slice(0, 10);
+        .map((image) => ({ alt: clean(image.alt, 240), src: absoluteUrl(image.currentSrc || image.src), width: image.naturalWidth || image.width, height: image.naturalHeight || image.height }))
+        .slice(0, 4);
       const inputs = Array.from(node.querySelectorAll("input,textarea,select"))
         .filter((input) => !/hidden|submit|button/.test(input.type || ""))
-        .map((input) => ({ type: input.type || input.tagName.toLowerCase(), name: input.name || "", label: clean(input.getAttribute("aria-label") || input.closest("label")?.innerText || input.parentElement?.innerText, 300) }))
-        .slice(0, 30);
-      chosen.push({ element: node, item: { index: chosen.length + 1, text, options: [...new Set(options)].slice(0, 40), images, inputs } });
+        .map((input) => ({ type: input.type || input.tagName.toLowerCase(), name: input.name || "", label: clean(input.getAttribute("aria-label") || input.closest("label")?.innerText || "", 180) }))
+        .slice(0, 12);
+      chosen.push({ element: node, item: { index: chosen.length + 1, text, options: [...new Set(options)].slice(0, 12), images, inputs } });
     }
-    if (chosen.length > 0) return chosen.map((entry) => entry.item);
+    if (chosen.length > 0) return chosen.slice(0, 6).map((entry) => entry.item);
 
-    // Fallback for pages without stable question containers: group answer controls by radio name/fieldset.
     const fields = Array.from(document.querySelectorAll("input[type=radio],input[type=checkbox],textarea,input:not([type]),select")).filter(visible);
     if (fields.length) {
       const groups = new Map();
@@ -112,12 +183,12 @@
         if (!groups.has(key)) groups.set(key, []);
         groups.get(key).push(field);
       }
-      return Array.from(groups.entries()).slice(0, 100).map(([key, group], index) => ({
+      return Array.from(groups.entries()).slice(0, 6).map(([key, group], index) => ({
         index: index + 1,
-        text: clean(group[0].closest("fieldset")?.innerText || group[0].parentElement?.parentElement?.innerText || key, 5000),
-        options: group.map((field) => clean(field.closest("label")?.innerText || field.parentElement?.innerText || field.value, 500)),
+        text: clean(group[0].closest("fieldset")?.innerText || group[0].parentElement?.parentElement?.innerText || key, 1800),
+        options: group.map((field) => clean(field.closest("label")?.innerText || field.parentElement?.innerText || field.value, 300)),
         images: [],
-        inputs: group.map((field) => ({ type: field.type || field.tagName.toLowerCase(), name: field.name || "", label: clean(field.getAttribute("aria-label"), 300) }))
+        inputs: group.map((field) => ({ type: field.type || field.tagName.toLowerCase(), name: field.name || "", label: clean(field.getAttribute("aria-label"), 180) }))
       }));
     }
     return [];
