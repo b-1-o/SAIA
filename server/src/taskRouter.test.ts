@@ -36,11 +36,11 @@ test("removes common private details from search queries", () => {
   assert.match(query, /Great Depression/);
 });
 test("parses the expected compact quiz response", () => {
-  const parsed = parseQuizModelResponse('{"items":[{"index":2,"suggestedResponse":"Option B","explanation":"Short reason","confidence":0.7,"needsReview":true}]}');
+  const parsed = parseQuizModelResponse('{"items":[{"index":2,"suggestedResponse":"Option B","explanation":"The factor theorem applies to this polynomial.","confidence":0.7,"needsReview":true}]}');
   assert.equal(parsed.items.length, 1);
   assert.equal(parsed.items[0].index, 2);
   assert.equal(parsed.items[0].suggestedResponse, "Option B");
-  assert.equal(parsed.items[0].explanation, "Short reason");
+  assert.equal(parsed.items[0].explanation, "The factor theorem applies to this polynomial.");
 });
 
 test("recovers a fenced response using alternate model field names", () => {
