@@ -1,0 +1,36 @@
+{
+  "name": "saia",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local-first browser study assistant with OCR and automatic local model routing",
+  "scripts": {
+    "dev": "concurrently -k -n API,POPUP -c magenta,cyan npm:dev:api npm:dev:popup",
+    "dev:api": "tsx watch server/src/index.ts",
+    "dev:popup": "vite --host 127.0.0.1",
+    "build": "npm run build:api && vite build",
+    "build:api": "tsc -p server/tsconfig.json",
+    "typecheck": "tsc --noEmit && tsc -p server/tsconfig.json --noEmit",
+    "test": "tsx --test server/src/taskRouter.test.ts"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.6.1",
+    "express": "^5.1.0",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "tesseract.js": "^6.0.1",
+    "zod": "^4.1.11"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.3",
+    "@types/node": "^22.15.30",
+    "@types/react": "^19.1.10",
+    "@types/react-dom": "^19.1.7",
+    "concurrently": "^9.2.1",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "vite": "^7.1.9"
+  }
+}
